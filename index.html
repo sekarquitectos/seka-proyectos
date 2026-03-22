@@ -121,6 +121,50 @@ const loadBackups=pid=>{const all=lsGet(BACK_KEY)||{};return all[pid]||[]};
 const saveBackup=(pid,label,data)=>{const all=lsGet(BACK_KEY)||{};const bk=all[pid]||[];bk.unshift({ts:Date.now(),label,data});all[pid]=bk.slice(0,MAX_BACKS);lsSet(BACK_KEY,all)};
 const deleteBackup=(pid,ts)=>{const all=lsGet(BACK_KEY)||{};all[pid]=(all[pid]||[]).filter(b=>b.ts!==ts);lsSet(BACK_KEY,all)};
 
+// ── CLOUD SYNC · JSONBin v3 ───────────────────────────────────
+const CLOUD_KEY='seka_cloud_config';
+const getCloudCfg=()=>lsGet(CLOUD_KEY)||{apiKey:'',binId:'',lastSync:null,autoSync:false};
+const setCloudCfg=v=>lsSet(CLOUD_KEY,{...getCloudCfg(),...v});
+
+const cloudSave=async(allProjects)=>{
+  const cfg=getCloudCfg();
+  if(!cfg.apiKey)throw new Error('Configura tu API Key de JSONBin primero');
+  const payload={projects:allProjects,savedAt:new Date().toISOString(),device:navigator.userAgent.includes('iPad')?'iPad':'Desktop'};
+  if(cfg.binId){
+    // UPDATE existing bin
+    const r=await fetch(`https://api.jsonbin.io/v3/b/${cfg.binId}`,{
+      method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':cfg.apiKey},
+      body:JSON.stringify(payload)
+    });
+    if(!r.ok)throw new Error(`Error actualizando nube: ${r.status}`);
+    setCloudCfg({lastSync:Date.now()});
+    return cfg.binId;
+  } else {
+    // CREATE new bin
+    const r=await fetch('https://api.jsonbin.io/v3/b',{
+      method:'POST',headers:{'Content-Type':'application/json','X-Master-Key':cfg.apiKey,'X-Bin-Name':'SEKA-Proyectos','X-Bin-Private':'true'},
+      body:JSON.stringify(payload)
+    });
+    if(!r.ok)throw new Error(`Error creando nube: ${r.status}`);
+    const d=await r.json();
+    const binId=d.metadata?.id;
+    setCloudCfg({binId,lastSync:Date.now()});
+    return binId;
+  }
+};
+
+const cloudLoad=async()=>{
+  const cfg=getCloudCfg();
+  if(!cfg.apiKey)throw new Error('Configura tu API Key primero');
+  if(!cfg.binId)throw new Error('No hay datos en la nube aún. Haz una subida primero desde cualquier dispositivo.');
+  const r=await fetch(`https://api.jsonbin.io/v3/b/${cfg.binId}/latest`,{
+    headers:{'X-Master-Key':cfg.apiKey}
+  });
+  if(!r.ok)throw new Error(`Error leyendo nube: ${r.status}`);
+  const d=await r.json();
+  return d.record;
+};
+
 // ── DEFAULT DATA ──────────────────────────────────────────────
 const BANO80_PROYECTO={nombre:'BAÑO 80',tipo:'Remodelación de Baño',direccion:'',ciudad:'Bogotá',area:'',cliente:'Paola Beltrán',telefono:'',email:'',nit:'',dirCliente:'',fechaInicio:'2026-02-19',fechaFin:'',valorContrato:'9429640',anticipoPct:0.6,notas:'Cotización N° SEKA-2026-003\nDuración: 17 días hábiles\nForma de pago: 60% anticipo, 20% avance de obra, 20% entrega a satisfacción\nFuncionario: Erick Hincapie | Garantía: 1 año'};
 const BANO80_PARTIDAS=[
@@ -1946,6 +1990,156 @@ const CronogramaTab=({actividades,onChange})=>{
   </div>);
 };
 
+// ── CLOUD SYNC PANEL ─────────────────────────────────────────
+const CloudSyncPanel=({onClose,onRestoreAll})=>{
+  const [cfg,setCfgState]=useState(getCloudCfg());
+  const [status,setStatus]=useState('idle'); // idle|loading|ok|err
+  const [msg,setMsg]=useState('');
+  const [confirmRestore,setConfirmRestore]=useState(false);
+  const [cloudMeta,setCloudMeta]=useState(null);
+
+  const save=()=>{setCloudCfg(cfg);setMsg('Configuración guardada ✓');setTimeout(()=>setMsg(''),2000)};
+
+  const doUpload=async()=>{
+    setStatus('loading');setMsg('Subiendo todos los proyectos a la nube...');
+    try{
+      const all=loadProjects();
+      const binId=await cloudSave(all);
+      setCloudCfg({...cfg,binId});
+      setCfgState(getCloudCfg());
+      setStatus('ok');setMsg(`✅ ${Object.keys(all).length} proyecto(s) guardados en la nube · BIN: ${binId}`);
+    }catch(e){setStatus('err');setMsg('❌ '+e.message);}
+  };
+
+  const doDownload=async()=>{
+    setStatus('loading');setMsg('Leyendo datos desde la nube...');
+    try{
+      const record=await cloudLoad();
+      setCloudMeta({device:record.device,savedAt:record.savedAt,count:Object.keys(record.projects||{}).length});
+      setStatus('ok');setMsg(`✅ Datos encontrados · ${Object.keys(record.projects||{}).length} proyecto(s) · Guardado: ${new Date(record.savedAt).toLocaleString('es-CO')} desde ${record.device}`);
+      setConfirmRestore(true);
+    }catch(e){setStatus('err');setMsg('❌ '+e.message);}
+  };
+
+  const doRestore=async()=>{
+    setStatus('loading');setMsg('Restaurando proyectos...');
+    try{
+      const record=await cloudLoad();
+      const projects=record.projects||{};
+      // Merge: cloud projects override local, keep local-only projects
+      const local=loadProjects();
+      const merged={...local,...projects};
+      lsSet(STORE_KEY,merged);
+      onRestoreAll(merged);
+      setStatus('ok');setMsg(`✅ ${Object.keys(projects).length} proyecto(s) restaurados correctamente`);
+      setConfirmRestore(false);
+      setTimeout(onClose,1500);
+    }catch(e){setStatus('err');setMsg('❌ '+e.message);}
+  };
+
+  const lastSync=cfg.lastSync?new Date(cfg.lastSync).toLocaleString('es-CO'):null;
+
+  return(
+    <div className="modal-bg" onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+      <div style={{background:'#0f172a',border:'1px solid #334155',borderRadius:14,padding:28,width:520,maxWidth:'96vw',color:'#e2e8f0',fontFamily:'inherit'}}>
+
+        {/* Header */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:'#fff'}}>☁ Sincronización en la Nube</div>
+            <div style={{fontSize:11,color:'#64748b',marginTop:2}}>SEKA Studio · Respaldo y sincronización iPad ↔ PC</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#64748b',fontSize:18,cursor:'pointer'}}>✕</button>
+        </div>
+
+        {/* Status banner */}
+        {lastSync&&<div style={{background:'rgba(22,163,74,.15)',border:'1px solid #16a34a',borderRadius:6,padding:'7px 12px',fontSize:11,color:'#4ade80',marginBottom:14}}>
+          🕐 Última sincronización: {lastSync} · BIN: {cfg.binId||'—'}
+        </div>}
+
+        {/* API Key config */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,color:'#64748b',textTransform:'uppercase',letterSpacing:1,marginBottom:5}}>API Key · JSONBin.io</div>
+          <input value={cfg.apiKey} onChange={e=>setCfgState(c=>({...c,apiKey:e.target.value}))}
+            placeholder="$2a$10$..." type="password"
+            style={{width:'100%',background:'#1e293b',border:'1px solid #334155',borderRadius:6,padding:'8px 11px',color:'#e2e8f0',fontSize:12,outline:'none',fontFamily:'inherit'}}/>
+          <div style={{fontSize:10,color:'#475569',marginTop:4}}>
+            Obtén tu API Key gratis en <span style={{color:'#38bdf8'}}>jsonbin.io</span> → Register → API Keys → Create Access Key
+          </div>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,color:'#64748b',textTransform:'uppercase',letterSpacing:1,marginBottom:5}}>BIN ID (se genera automáticamente en la primera subida)</div>
+          <input value={cfg.binId||''} onChange={e=>setCfgState(c=>({...c,binId:e.target.value}))}
+            placeholder="Se genera solo al subir por primera vez..."
+            style={{width:'100%',background:'#1e293b',border:'1px solid #334155',borderRadius:6,padding:'8px 11px',color:'#e2e8f0',fontSize:12,outline:'none',fontFamily:'inherit'}}/>
+          <div style={{fontSize:10,color:'#475569',marginTop:4}}>Si ya tienes un BIN ID de otro dispositivo, pégalo aquí antes de descargar.</div>
+        </div>
+
+        <button onClick={save} style={{padding:'6px 14px',background:'#334155',border:'1px solid #475569',borderRadius:6,color:'#e2e8f0',cursor:'pointer',fontSize:12,fontFamily:'inherit',marginBottom:18}}>
+          💾 Guardar configuración
+        </button>
+
+        {/* Action buttons */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+
+          <button onClick={doUpload} disabled={status==='loading'||!cfg.apiKey}
+            style={{padding:'12px',background:'#16a34a',border:'none',borderRadius:8,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:700,fontFamily:'inherit',opacity:(!cfg.apiKey||status==='loading')?.5:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+            <span style={{fontSize:22}}>☁↑</span>
+            <span>Subir a la nube</span>
+            <span style={{fontSize:10,fontWeight:400,opacity:.8}}>iPad → Nube → PC</span>
+          </button>
+
+          <button onClick={doDownload} disabled={status==='loading'||!cfg.apiKey}
+            style={{padding:'12px',background:'#0ea5e9',border:'none',borderRadius:8,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:700,fontFamily:'inherit',opacity:(!cfg.apiKey||status==='loading')?.5:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+            <span style={{fontSize:22}}>☁↓</span>
+            <span>Bajar de la nube</span>
+            <span style={{fontSize:10,fontWeight:400,opacity:.8}}>PC ← Nube ← iPad</span>
+          </button>
+        </div>
+
+        {/* Confirm restore */}
+        {confirmRestore&&cloudMeta&&(
+          <div style={{background:'rgba(14,165,233,.1)',border:'1px solid #0ea5e9',borderRadius:8,padding:14,marginBottom:14}}>
+            <div style={{fontSize:13,color:'#38bdf8',fontWeight:700,marginBottom:6}}>¿Restaurar datos de la nube?</div>
+            <div style={{fontSize:12,color:'#94a3b8',marginBottom:10}}>
+              Encontrado: <strong style={{color:'#e2e8f0'}}>{cloudMeta.count} proyecto(s)</strong> · 
+              Guardado el {new Date(cloudMeta.savedAt).toLocaleString('es-CO')} · 
+              Desde {cloudMeta.device}
+            </div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:12}}>⚠️ Los proyectos en la nube se fusionarán con los locales. No se elimina nada.</div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={doRestore} style={{padding:'7px 16px',background:'#0ea5e9',border:'none',borderRadius:6,color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}}>
+                ✅ Sí, restaurar
+              </button>
+              <button onClick={()=>setConfirmRestore(false)} style={{padding:'7px 16px',background:'#334155',border:'none',borderRadius:6,color:'#94a3b8',cursor:'pointer',fontSize:12,fontFamily:'inherit'}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Status message */}
+        {msg&&<div style={{padding:'8px 12px',borderRadius:6,fontSize:12,marginBottom:12,
+          background:status==='ok'?'rgba(22,163,74,.15)':status==='err'?'rgba(239,68,68,.15)':'rgba(148,163,184,.1)',
+          border:`1px solid ${status==='ok'?'#16a34a':status==='err'?'#ef4444':'#334155'}`,
+          color:status==='ok'?'#4ade80':status==='err'?'#f87171':'#94a3b8'}}>
+          {status==='loading'&&<span style={{marginRight:8}}>⏳</span>}{msg}
+        </div>}
+
+        {/* Instructions */}
+        <div style={{background:'#1e293b',borderRadius:8,padding:14,fontSize:11,color:'#64748b',lineHeight:1.7}}>
+          <div style={{color:'#94a3b8',fontWeight:700,marginBottom:6}}>📋 Flujo de sincronización</div>
+          <div><span style={{color:'#4ade80'}}>iPad → PC:</span> Abre la app en el iPad → ☁ Sync → <strong>Subir a la nube</strong> → Abre en PC → ☁ Sync → <strong>Bajar de la nube</strong></div>
+          <div style={{marginTop:4}}><span style={{color:'#38bdf8'}}>PC → iPad:</span> Desde el PC → ☁ Sync → <strong>Subir a la nube</strong> → En el iPad → ☁ Sync → <strong>Bajar de la nube</strong></div>
+          <div style={{marginTop:6,color:'#475569'}}>El BIN ID es el mismo para todos los dispositivos. Cópialo del primer dispositivo al segundo.</div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
 // ── APP ───────────────────────────────────────────────────────
 // ── JSON EXPORT / IMPORT ─────────────────────────────────────
 const downloadJSON = (projectName, data) => {
@@ -1977,7 +2171,7 @@ const importJSON = (onImport) => {
 const TABS=[{id:'dashboard',label:'📊 Dashboard'},{id:'proyecto',label:'📋 Proyecto'},{id:'presupuesto',label:'💵 Presupuesto'},{id:'pagos',label:'💰 Pagos'},{id:'gastos',label:'💸 Gastos'},{id:'cronograma',label:'📅 Cronograma'},{id:'ot',label:'👷 OT Trabajadores'},{id:'contratos',label:'📄 Contratos'},{id:'informes',label:'📝 Informes'},{id:'actas',label:'📝 Actas M&M'}];
 
 const App=()=>{
-  const [tab,setTab]=useState('dashboard');const [projectId,setProjectId]=useState(null);const [projectName,setProjectName]=useState('');const [state,setState]=useState(null);const [showPM,setShowPM]=useState(true);const [showBk,setShowBk]=useState(false);const [saveMsg,setSaveMsg]=useState('');const autoRef=useRef();
+  const [tab,setTab]=useState('dashboard');const [projectId,setProjectId]=useState(null);const [projectName,setProjectName]=useState('');const [state,setState]=useState(null);const [showPM,setShowPM]=useState(true);const [showBk,setShowBk]=useState(false);const [showSync,setShowSync]=useState(false);const [saveMsg,setSaveMsg]=useState('');const autoRef=useRef();
 
   useEffect(()=>{if(!state||!projectId)return;saveProject(projectId,projectName,state);setSaveMsg('Guardado ✓');if(autoRef.current)clearTimeout(autoRef.current);autoRef.current=setTimeout(()=>setSaveMsg(''),2000)},[state]);
 
@@ -1988,10 +2182,12 @@ const App=()=>{
   };
   const set=(field,val)=>setState(s=>({...s,[field]:val}));
   const doManualBk=()=>{saveBackup(projectId,`Manual — ${tsLabel(Date.now())}`,state);setSaveMsg('💾 Backup guardado ✓');setTimeout(()=>setSaveMsg(''),2500)};
+  const onRestoreAll=(merged)=>{const first=Object.values(merged)[0];if(first){open(first.id,first.name,first.data);}setShowPM(true);};
 
   return(<div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#f1f5f9'}}>
     {showPM&&<ProjectManager onSelect={open} onClose={()=>setShowPM(false)}/>}
     {showBk&&state&&<BackupPanel projectId={projectId} projectName={projectName} currentData={state} onRestore={data=>{const d={...EMPTY_PROJECT,...data,ots:data.ots||[],contratos:data.contratos||[],informes:data.informes||[],actas:data.actas||[]};setState(d);saveProject(projectId,projectName,d)}} onClose={()=>setShowBk(false)}/>}
+    {showSync&&<CloudSyncPanel onClose={()=>setShowSync(false)} onRestoreAll={onRestoreAll}/>}
     <div style={{background:'#1e293b',borderBottom:'1px solid #334155',padding:'0 18px',display:'flex',alignItems:'center',justifyContent:'space-between',height:50,flexShrink:0}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
         <div onClick={()=>setShowPM(true)} style={{cursor:'pointer',display:'flex',alignItems:'center'}}><SekaLogo w={110} inverted={true}/></div>
@@ -2000,6 +2196,7 @@ const App=()=>{
       <div style={{display:'flex',alignItems:'center',gap:5}}>
         {saveMsg&&<span style={{fontSize:11,color:'#4ade80'}}>{saveMsg}</span>}
         <span style={{fontSize:11,padding:'3px 8px',background:'rgba(22,163,74,.2)',border:'1px solid #16a34a',borderRadius:5,color:'#4ade80',fontWeight:600}}>🔍 OCR Gratis</span>
+        <button className="btn-ghost" onClick={()=>setShowSync(true)} style={{fontSize:11,color:'#38bdf8',borderColor:'#0ea5e9',fontWeight:700,background:'rgba(14,165,233,.1)'}}>☁ Sync</button>
         {state&&<><button className="btn-ghost" onClick={()=>downloadJSON(projectName,state)} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>⬇ JSON</button>
         <button className="btn-ghost" onClick={doManualBk} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>💾 Backup</button>
         <button className="btn-ghost" onClick={()=>setShowBk(true)} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>🗂 Historial</button>
@@ -2030,7 +2227,7 @@ const App=()=>{
       </>)}
     </div>
     <div style={{background:'#1e293b',borderTop:'1px solid #334155',padding:'5px 18px',fontSize:10,color:'#64748b',textAlign:'center'}}>
-      SEKA Studio · 10 módulos · Guardado automático · IndexedDB para archivos · {MAX_BACKS} backups por proyecto
+      SEKA Studio · 10 módulos · Guardado automático · IndexedDB para archivos · {MAX_BACKS} backups · ☁ Sync v2
     </div>
   </div>);
 };
