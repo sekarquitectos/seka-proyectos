@@ -1,0 +1,2336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SEKA Studio — Gestión de Proyectos</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  /* ── LIGHT THEME ── */
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#f1f5f9;color:#1e293b;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:13px}
+  h3{color:#1e293b}
+
+  /* App chrome — dark header stays dark for branding */
+  .app-header{background:#1e293b!important;color:#fff!important}
+  .app-tabs{background:#1e293b!important}
+
+  /* Cards */
+  .card{background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+
+  /* KPI boxes */
+  .kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px}
+
+  /* Section headers */
+  .sec{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#64748b;font-weight:700;margin:14px 0 8px;padding-bottom:5px;border-bottom:2px solid #e67e22;display:block}
+
+  /* Inputs */
+  .inp{width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:7px 10px;color:#1e293b;font-size:12px;transition:border .15s}
+  .inp:focus{outline:none;border-color:#e67e22;background:#fff}
+
+  /* Buttons */
+  .btn{background:#e67e22;color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s}
+  .btn:hover{opacity:.85}
+  .btn-ghost{background:transparent;color:#475569;border:1px solid #e2e8f0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;transition:background .15s}
+  .btn-ghost:hover{background:#f1f5f9}
+  .btn-sm{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;transition:background .15s}
+  .btn-sm:hover{background:#e2e8f0}
+  .btn-del{background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:4px;transition:background .15s}
+  .btn-del:hover{background:#fef2f2}
+
+  /* Tabs */
+  .tab-on{background:#e67e22;color:#fff;border:none;border-radius:5px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .tab-off{background:transparent;color:#94a3b8;border:none;border-radius:5px;padding:8px 14px;font-size:12px;cursor:pointer;white-space:nowrap;transition:all .15s}
+  .tab-off:hover{background:rgba(255,255,255,.1);color:#fff}
+
+  /* Tables */
+  table th{background:#f1f5f9;color:#475569;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:8px 10px;border-bottom:2px solid #e2e8f0;text-align:left;font-weight:700}
+  table td{padding:8px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle;color:#1e293b}
+  table tr:hover td{background:#fafafa}
+
+  /* Status badges */
+  .ok{color:#16a34a;font-weight:600}
+  .warn{color:#d97706;font-weight:600}
+  .err{color:#dc2626;font-weight:600}
+  .none{color:#94a3b8}
+
+  /* Progress bars */
+  .pbar{height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden}
+  .pfill{height:100%;background:linear-gradient(90deg,#e67e22,#f59e0b);border-radius:3px;transition:width .3s}
+
+  /* Modals / overlays */
+  .modal-bg{position:fixed;inset:0;background:rgba(15,25,35,.5);display:flex;align-items:center;justify-content:center;z-index:500}
+
+  /* Print */
+  @media print{
+    .noprint{display:none!important}
+    body{background:#fff;color:#111}
+    .card{box-shadow:none;border:1px solid #ddd}
+    table th{background:#f5f5f5}
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:#f1f5f9}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useMemo,useRef,useCallback}=React;
+
+// ── FORMAT ────────────────────────────────────────────────────
+const cop=n=>{if(n===''||n===null||n===undefined||isNaN(+n))return'—';return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:0}).format(+n)};
+const pct=n=>{if(n===''||n===null||!isFinite(+n))return'—';return(+n*100).toFixed(1)+'%'};
+const num=n=>{if(!n&&n!==0)return'—';return(+n).toLocaleString('es-CO')};
+const tod=()=>new Date().toISOString().split('T')[0];
+const tsLabel=ts=>new Date(ts).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const uid=()=>Math.random().toString(36).slice(2,10);
+const days=(a,b)=>{if(!a||!b)return null;return Math.round((new Date(b)-new Date(a))/864e5)};
+const fmtSize=b=>{if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB'};
+
+// ── INDEXEDDB (files) ─────────────────────────────────────────
+const DB_NAME='seka_files_v1',DB_VER=1,STORE='files';
+let _db=null;
+const getDB=()=>new Promise((res,rej)=>{
+  if(_db)return res(_db);
+  const r=indexedDB.open(DB_NAME,DB_VER);
+  r.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains(STORE)){const s=db.createObjectStore(STORE,{keyPath:'id'});s.createIndex('projectId','projectId',{unique:false});s.createIndex('type','type',{unique:false});}};
+  r.onsuccess=e=>{_db=e.target.result;res(_db)};r.onerror=e=>rej(e);
+});
+const dbSave=async(rec)=>{const db=await getDB();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put(rec).onsuccess=e=>res(e.target.result);tx.onerror=rej;})};
+const dbGet=async(id)=>{const db=await getDB();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readonly');tx.objectStore(STORE).get(id).onsuccess=e=>res(e.target.result);tx.onerror=rej;})};
+const dbGetByProject=async(pid)=>{const db=await getDB();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readonly');const req=tx.objectStore(STORE).index('projectId').getAll(pid);req.onsuccess=e=>res(e.target.result);req.onerror=rej;})};
+const dbDelete=async(id)=>{const db=await getDB();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(id).onsuccess=()=>res();tx.onerror=rej;})};
+const fileToRec=(file,projectId,type,meta={})=>new Promise(res=>{
+  const r=new FileReader();r.onload=e=>res({id:uid(),projectId,type,name:file.name,mime:file.type,size:file.size,date:tod(),data:e.target.result,...meta});r.readAsDataURL(file);
+});
+
+// ── LOCALSTORAGE ──────────────────────────────────────────────
+const STORE_KEY='seka_v4_projects',BACK_KEY='seka_v4_backups',MAX_BACKS=10;
+const lsGet=k=>{try{const d=localStorage.getItem(k);return d?JSON.parse(d):null}catch{return null}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){console.warn('Storage',e)}};
+const loadProjects=()=>lsGet(STORE_KEY)||{};
+const saveProject=(id,name,data)=>{const all=loadProjects();all[id]={id,name,lastSaved:Date.now(),data};lsSet(STORE_KEY,all)};
+const deleteProject=id=>{const all=loadProjects();delete all[id];lsSet(STORE_KEY,all)};
+const loadBackups=pid=>{const all=lsGet(BACK_KEY)||{};return all[pid]||[]};
+const saveBackup=(pid,label,data)=>{const all=lsGet(BACK_KEY)||{};const bk=all[pid]||[];bk.unshift({ts:Date.now(),label,data});all[pid]=bk.slice(0,MAX_BACKS);lsSet(BACK_KEY,all)};
+const deleteBackup=(pid,ts)=>{const all=lsGet(BACK_KEY)||{};all[pid]=(all[pid]||[]).filter(b=>b.ts!==ts);lsSet(BACK_KEY,all)};
+
+// ── DEFAULT DATA ──────────────────────────────────────────────
+const BANO80_PROYECTO={nombre:'BAÑO 80',tipo:'Remodelación de Baño',direccion:'',ciudad:'Bogotá',area:'',cliente:'Paola Beltrán',telefono:'',email:'',nit:'',dirCliente:'',fechaInicio:'2026-02-19',fechaFin:'',valorContrato:'9429640',anticipoPct:0.6,notas:'Cotización N° SEKA-2026-003\nDuración: 17 días hábiles\nForma de pago: 60% anticipo, 20% avance de obra, 20% entrega a satisfacción\nFuncionario: Erick Hincapie | Garantía: 1 año'};
+const BANO80_PARTIDAS=[
+  {id:uid(),item:'1',desc:'PRELIMINARES / DESMONTES Y DEMOLICIONES',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'1.1',desc:'Desmonte aparatos sanitarios (cargue y retiro)',esCapitulo:false,unidad:'und',cant:2,vUnit:50000},
+  {id:uid(),item:'1.2',desc:'Desmonte ducha',esCapitulo:false,unidad:'und',cant:1,vUnit:50000},
+  {id:uid(),item:'1.3',desc:'Desmonte puerta aluminio ducha',esCapitulo:false,unidad:'und',cant:1,vUnit:20000},
+  {id:uid(),item:'1.4',desc:'Demolición de muros (cargue y retiro escombros)',esCapitulo:false,unidad:'m²',cant:3,vUnit:30000},
+  {id:uid(),item:'1.5',desc:'Demolición enchape de pisos',esCapitulo:false,unidad:'m²',cant:3,vUnit:25000},
+  {id:uid(),item:'1.6',desc:'Demolición enchape de muros',esCapitulo:false,unidad:'m²',cant:16.15,vUnit:20000},
+  {id:uid(),item:'5',desc:'INSTALACIONES ELÉCTRICAS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'5.1',desc:'Adecuación salidas eléctricas para lámparas',esCapitulo:false,unidad:'und',cant:2,vUnit:65000},
+  {id:uid(),item:'5.2',desc:'Toma doble P/T GFCI 15Amp blanco (zona húmeda)',esCapitulo:false,unidad:'und',cant:1,vUnit:120000},
+  {id:uid(),item:'5.3',desc:'Bala LED tipo downlight 12W',esCapitulo:false,unidad:'und',cant:4,vUnit:80000},
+  {id:uid(),item:'7',desc:'CIELO RASOS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'7.1',desc:'Cielo raso suspendido drywall junta perdida (perfilería Cal.24-26, estructura c/40cm) — 3 manos pintura',esCapitulo:false,unidad:'m²',cant:3,vUnit:120000},
+  {id:uid(),item:'8',desc:'PISOS — ACABADOS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'8.1',desc:'Alistado pisos mortero 1:4 e=0.05m',esCapitulo:false,unidad:'m²',cant:2.6,vUnit:35000},
+  {id:uid(),item:'8.2',desc:'Piso cerámico color beige 60×60 cm',esCapitulo:false,unidad:'m²',cant:3,vUnit:120000},
+  {id:uid(),item:'9',desc:'ENCHAPES Y ACCESORIOS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'9.1',desc:'Enchape de pared color beige',esCapitulo:false,unidad:'m²',cant:5,vUnit:120000},
+  {id:uid(),item:'9.2',desc:'Enchape tipo brick ducha (Brick Azul Niebla 8.8×27)',esCapitulo:false,unidad:'m²',cant:4,vUnit:255000},
+  {id:uid(),item:'9.3',desc:'Incrustaciones porcelana juego x6 ELITE Ref.06610100-1',esCapitulo:false,unidad:'und',cant:1,vUnit:120000},
+  {id:uid(),item:'10',desc:'VIDRIOS Y ESPEJOS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'10.1',desc:'División en vidrio ducha (incluye accesorios)',esCapitulo:false,unidad:'ml',cant:2,vUnit:1000000},
+  {id:uid(),item:'10.2',desc:'Espejo negro 60×120 cm',esCapitulo:false,unidad:'und',cant:1,vUnit:200000},
+  {id:uid(),item:'11',desc:'APARATOS SANITARIOS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'11.1',desc:'Sanitario',esCapitulo:false,unidad:'und',cant:1,vUnit:600000},
+  {id:uid(),item:'11.2',desc:'Mueble Cascade Plus 70cm + lavamanos Vessel Baru + grifería Monocontrol Titanio',esCapitulo:false,unidad:'und',cant:1,vUnit:800000},
+  {id:uid(),item:'11.3',desc:'Ducha a techo monocontrol (accesorios y tubería cobre)',esCapitulo:false,unidad:'und',cant:1,vUnit:650000},
+  {id:uid(),item:'13',desc:'PINTURA',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'13.1',desc:'Pintura muro — 1 mano tipo 2 + 1 mano tipo 1, filos y dilataciones',esCapitulo:false,unidad:'m²',cant:4,vUnit:25000},
+  {id:uid(),item:'ADM',desc:'COSTOS INDIRECTOS',esCapitulo:true,unidad:'',cant:'',vUnit:''},
+  {id:uid(),item:'ADM.1',desc:'Administración 5%',esCapitulo:false,unidad:'GLB',cant:1,vUnit:406450},
+  {id:uid(),item:'ADM.2',desc:'Imprevistos 4%',esCapitulo:false,unidad:'GLB',cant:1,vUnit:325160},
+  {id:uid(),item:'ADM.3',desc:'Utilidad 7%',esCapitulo:false,unidad:'GLB',cant:1,vUnit:569030},
+];
+const BANO80_ACTS=[
+  {id:uid(),num:'1',desc:'PRELIMINARES',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'1.1',desc:'Desmonte aparatos sanitarios y ducha',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'1.2',desc:'Demoliciones muros y enchapes',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'5',desc:'INSTALACIONES ELÉCTRICAS',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'5.1',desc:'Red eléctrica y toma GFCI',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'5.2',desc:'Instalación balas LED',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'7',desc:'CIELO RASO',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'7.1',desc:'Drywall junta perdida',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'8',desc:'PISOS',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'8.1',desc:'Alistado y piso cerámico',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'9',desc:'ENCHAPES',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'9.1',desc:'Enchape pared beige + brick ducha + incrustaciones',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'10',desc:'VIDRIOS Y ESPEJOS',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'10.1',desc:'División vidrio ducha + espejo',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'11',desc:'APARATOS SANITARIOS',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'11.1',desc:'Sanitario + mueble + ducha monocontrol',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'13',desc:'PINTURA Y ENTREGA',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+  {id:uid(),num:'13.1',desc:'Pintura y limpieza final',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},
+];
+const EMPTY_PROJECT={proyecto:{nombre:'',tipo:'',direccion:'',ciudad:'',area:'',cliente:'',telefono:'',email:'',nit:'',dirCliente:'',fechaInicio:'',fechaFin:'',valorContrato:'',anticipoPct:0.5,notas:''},partidas:[{id:uid(),item:'1',desc:'CAPÍTULO 1',esCapitulo:true,unidad:'',cant:'',vUnit:''},{id:uid(),item:'1.1',desc:'Actividad',esCapitulo:false,unidad:'',cant:'',vUnit:''}],pagos:[],gastos:[],actividades:[{id:uid(),num:'1',desc:'FASE 1',esCapitulo:true,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''},{id:uid(),num:'1.1',desc:'Actividad',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''}],ots:[],contratos:[],informes:[],actas:[]};
+const BANO80_DATA={...EMPTY_PROJECT,proyecto:BANO80_PROYECTO,partidas:BANO80_PARTIDAS,actividades:BANO80_ACTS};
+
+// ── SEKA LOGO COMPONENT ──────────────────────────────────────
+// inverted=true → colores blancos (para fondos oscuros del app)
+// inverted=false → colores oscuros (para impresión en blanco)
+const SekaLogo=({w=140,inverted=false})=>{
+  const ic=inverted?'#ffffff':'#0f1923';
+  const bg=inverted?'rgba(255,255,255,0.12)':'#0f1923';
+  const bgIcon=inverted?'rgba(255,255,255,0.9)':'#0f1923';
+  const sColor=inverted?'#0f1923':'#ffffff';
+  return(
+    <svg xmlns="http://www.w3.org/2000/svg" width={w} viewBox="0 0 210 64" style={{flexShrink:0,display:'block'}}>
+      {/* Icon box */}
+      <rect x="2" y="4" width="54" height="54" rx="11" fill={bgIcon}/>
+      {/* Stylized S - two arcs forming S shape */}
+      <path d="M18,18 Q18,10 30,10 Q42,10 42,20 Q42,30 28,30 Q16,30 16,42 Q16,54 30,54 Q42,54 42,46"
+            stroke={sColor} strokeWidth="7.5" strokeLinecap="round" fill="none"/>
+      {/* "seka" text */}
+      <text x="68" y="34" fontFamily="'Arial',sans-serif" fontSize="24" fontWeight="800" fill={ic} letterSpacing="-0.5">seka</text>
+      {/* thin horizontal rule */}
+      <line x1="68" y1="40" x2="207" y2="40" stroke={ic} strokeWidth="0.7" opacity="0.5"/>
+      {/* STUDIO text */}
+      <text x="137" y="54" fontFamily="'Arial',sans-serif" fontSize="9.5" fontWeight="400" fill={ic} letterSpacing="5.5" textAnchor="middle">STUDIO</text>
+    </svg>
+  );
+};
+// ── UI HELPERS ────────────────────────────────────────────────
+const Kpi=({label,val,sub,color='#e67e22',icon})=>(
+  <div className="kpi"><div style={{fontSize:10,color:'#94a3b8',textTransform:'uppercase',letterSpacing:.5}}>{icon} {label}</div>
+  <div style={{fontSize:20,fontWeight:700,color,marginTop:2}}>{val}</div>
+  {sub&&<div style={{fontSize:11,color:'#94a3b8',marginTop:1}}>{sub}</div>}</div>
+);
+const Inp=({label,type='text',val,set,ph='',pre,suf,wide,rows})=>(
+  <div style={wide?{gridColumn:'span 2'}:{}}>
+    {label&&<label style={{display:'block',fontSize:10,color:'#94a3b8',marginBottom:3,textTransform:'uppercase',letterSpacing:.5}}>{label}</label>}
+    <div style={{display:'flex'}}>
+      {pre&&<span style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRight:'none',padding:'6px 8px',fontSize:12,color:'#94a3b8',borderRadius:'6px 0 0 6px',whiteSpace:'nowrap'}}>{pre}</span>}
+      {rows?<textarea rows={rows} value={val} onChange={e=>set(e.target.value)} placeholder={ph} className="inp" style={{borderRadius:6,resize:'vertical'}}/>
+      :<input type={type} value={val} onChange={e=>set(e.target.value)} placeholder={ph} className="inp"
+        style={{borderRadius:pre?'0 6px 6px 0':suf?'6px 0 0 6px':'6px',borderLeft:pre?'none':undefined,borderRight:suf?'none':undefined}}/>}
+      {suf&&<span style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderLeft:'none',padding:'6px 8px',fontSize:12,color:'#94a3b8',borderRadius:'0 6px 6px 0',whiteSpace:'nowrap'}}>{suf}</span>}
+    </div>
+  </div>
+);
+const Sel=({label,val,set,opts})=>(
+  <div><label style={{display:'block',fontSize:10,color:'#94a3b8',marginBottom:3,textTransform:'uppercase',letterSpacing:.5}}>{label}</label>
+  <select value={val} onChange={e=>set(e.target.value)} className="inp">{opts.map(o=><option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}</select></div>
+);
+
+// ── FILE VIEWER MODAL ─────────────────────────────────────────
+const FileViewer=({fileId,onClose})=>{
+  const [rec,setRec]=useState(null);
+  useEffect(()=>{if(fileId)dbGet(fileId).then(setRec)},[fileId]);
+  if(!rec)return null;
+  const isImg=rec.mime&&rec.mime.startsWith('image');
+  const isPdf=rec.mime==='application/pdf';
+  return(
+    <div className="modal" onClick={onClose}>
+      <div className="modal-box" style={{width:'90vw',maxWidth:900}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:14}}>{rec.name}</div>
+          <div style={{display:'flex',gap:8}}>
+            <a href={rec.data} download={rec.name} className="btn-sm">⬇ Descargar</a>
+            <button className="btn-ghost" onClick={onClose} style={{padding:'4px 10px'}}>✕</button>
+          </div>
+        </div>
+        {isImg&&<img src={rec.data} alt={rec.name} style={{maxWidth:'100%',maxHeight:'70vh',borderRadius:6,display:'block',margin:'0 auto'}}/>}
+        {isPdf&&<iframe src={rec.data} style={{width:'100%',height:'70vh',border:'none',borderRadius:6}} title={rec.name}/>}
+        {!isImg&&!isPdf&&<div style={{textAlign:'center',padding:40,color:'#94a3b8'}}>Vista previa no disponible para este tipo de archivo.<br/><a href={rec.data} download={rec.name} style={{color:'#e67e22'}}>Descargar archivo</a></div>}
+        <div style={{marginTop:8,fontSize:11,color:'#94a3b8'}}>{rec.date} · {fmtSize(rec.size)}</div>
+      </div>
+    </div>
+  );
+};
+
+// ── FILE UPLOAD BUTTON ────────────────────────────────────────
+const UploadBtn=({projectId,type,meta={},onUploaded,label='📎 Adjuntar',multiple=false,accept='image/*,application/pdf,.pdf,.doc,.docx,.xlsx'})=>{
+  const ref=useRef();
+  const handle=async e=>{
+    const files=[...e.target.files];if(!files.length)return;
+    const recs=await Promise.all(files.map(f=>fileToRec(f,projectId,type,meta)));
+    await Promise.all(recs.map(dbSave));
+    onUploaded(recs);
+    ref.current.value='';
+  };
+  return(<label className="btn-sm" style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4}}>
+    {label}<input ref={ref} type="file" accept={accept} multiple={multiple} onChange={handle} style={{display:'none'}}/>
+  </label>);
+};
+
+// ── DROPZONE ──────────────────────────────────────────────────
+const Dropzone=({projectId,type,meta={},onUploaded,label,accept='image/*,application/pdf'})=>{
+  const ref=useRef();
+  const [drag,setDrag]=useState(false);
+  const handle=async files=>{
+    if(!files.length)return;
+    const recs=await Promise.all([...files].map(f=>fileToRec(f,projectId,type,meta)));
+    await Promise.all(recs.map(dbSave));
+    onUploaded(recs);
+  };
+  return(
+    <div className="dropzone" style={{borderColor:drag?'#e67e22':'#2c3e50'}}
+      onDragOver={e=>{e.preventDefault();setDrag(true)}}
+      onDragLeave={()=>setDrag(false)}
+      onDrop={e=>{e.preventDefault();setDrag(false);handle(e.dataTransfer.files)}}
+      onClick={()=>ref.current.click()}>
+      <div style={{fontSize:24,marginBottom:8}}>📁</div>
+      <div style={{fontSize:13,color:'#94a3b8'}}>{label||'Arrastra archivos aquí o haz clic para seleccionar'}</div>
+      <div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>Imágenes, PDF, Word, Excel</div>
+      <input ref={ref} type="file" accept={accept} multiple onChange={e=>handle(e.target.files)} style={{display:'none'}}/>
+    </div>
+  );
+};
+
+// ── OCR GRATUITO v2 — Tesseract.js v4 (compatible file://) ────
+// Sin API key · Sin costo · Corre en tu computador
+
+// ── PDF: extrae texto directo de PDFs digitales ───────────────
+const loadPdfJs = () => new Promise((res, rej) => {
+  if (window.pdfjsLib) { res(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  s.onload = () => {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    res();
+  };
+  s.onerror = () => rej(new Error('No se pudo cargar pdf.js'));
+  document.head.appendChild(s);
+});
+
+const extractPdfText = async (file) => {
+  await loadPdfJs();
+  const ab = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+  let text = '';
+  for (let i = 1; i <= Math.min(pdf.numPages, 5); i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return text;
+};
+
+const renderPdfToImage = async (file) => {
+  await loadPdfJs();
+  const ab = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+  const page = await pdf.getPage(1);
+  const vp = page.getViewport({ scale: 2.5 });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  return new Promise(r => canvas.toBlob(r, 'image/png', 0.95));
+};
+
+// ── Tesseract.js v4 — compatible con file:// ─────────────────
+const loadTesseract = () => new Promise((res, rej) => {
+  if (window.Tesseract) { res(); return; }
+  const s = document.createElement('script');
+  // v4.1.4 — usa blob worker, funciona sin SharedArrayBuffer (compatible file://)
+  s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4.1.4/dist/tesseract.min.js';
+  s.onload = res;
+  s.onerror = () => rej(new Error('No se pudo cargar el motor OCR. Verifica conexión a internet.'));
+  document.head.appendChild(s);
+});
+
+const runOCR = async (imageBlob, onProgress) => {
+  await loadTesseract();
+  // v4 API: createWorker(lang, oem, options)
+  const worker = await Tesseract.createWorker(['spa', 'eng'], 1, {
+    workerBlobURL: true, // usa blob URL — compatible con file://
+    logger: m => {
+      if (m.status === 'recognizing text' && onProgress) {
+        onProgress(Math.round(m.progress * 100));
+      }
+    }
+  });
+  try {
+    const { data: { text } } = await worker.recognize(imageBlob);
+    return text;
+  } finally {
+    await worker.terminate();
+  }
+};
+
+// ── PARSER DE DOCUMENTOS COLOMBIANOS ─────────────────────────
+const parseDocText = (text, mode) => {
+  const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 1);
+  const all = text.replace(/\s+/g, ' ');
+
+  // ── FECHA ──────────────────────────────────────────────────
+  const MESES = { enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12 };
+  let fecha = null;
+  const datePatterns = [
+    { re: /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/, fn: m => `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` },
+    { re: /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/, fn: m => `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` },
+    { re: /(\d{1,2})\s+de\s+(\w+)\s+(?:de\s+)?(\d{4})/i, fn: m => { const mes=MESES[m[2].toLowerCase()]; return mes?`${m[3]}-${String(mes).padStart(2,'0')}-${m[1].padStart(2,'0')}`:null; } },
+    { re: /(\d{1,2})[\.\s](\d{1,2})[\.\s](\d{4})/, fn: m => `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` },
+  ];
+  for (const { re, fn } of datePatterns) {
+    const m = all.match(re);
+    if (m) { const d = fn(m); if (d && !isNaN(new Date(d).getTime())) { fecha = d; break; } }
+  }
+
+  // ── PARSER DE VALORES COP ──────────────────────────────────
+  const parseNum = s => {
+    if (!s) return null;
+    const clean = s.replace(/\s/g,'');
+    if (/^\d{1,3}(\.\d{3})+$/.test(clean)) return parseFloat(clean.replace(/\./g,''));
+    if (/^\d{1,3}(,\d{3})+$/.test(clean)) return parseFloat(clean.replace(/,/g,''));
+    if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(clean)) return parseFloat(clean.replace(/\./g,'').replace(',','.'));
+    return parseFloat(clean.replace(/[^\d.]/g,''));
+  };
+
+  // ── TOTAL ──────────────────────────────────────────────────
+  let valorTotal = null;
+  const totalPatterns = [
+    /(?:TOTAL\s+A\s+PAGAR|NETO\s+A\s+PAGAR|VALOR\s+TOTAL\s+A\s+PAGAR|GRAN\s+TOTAL|TOTAL\s+FACTURA|TOTAL\s+NETO)[^\d]{0,15}([\d.,]+)/i,
+    /TOTAL[:\s]{1,5}(?:\$\s*)?([\d.,]{4,})/i,
+    /(?:PAGAR|NETO)[:\s]{1,5}(?:\$\s*)?([\d.,]{4,})/i,
+  ];
+  for (const re of totalPatterns) {
+    const m = all.match(re);
+    if (m) { const v = parseNum(m[1]); if (v && v > 999) { valorTotal = v; break; } }
+  }
+  if (!valorTotal) {
+    // Last resort: largest number in document
+    const nums = [...all.matchAll(/(?<!\d)([\d]{1,3}(?:[.,]\d{3})+)(?!\d)/g)].map(m => parseNum(m[1])).filter(v => v && v > 999 && v < 1e11);
+    if (nums.length) valorTotal = Math.max(...nums);
+  }
+
+  // ── SUBTOTAL & IVA ─────────────────────────────────────────
+  let valorSubtotal = null, iva = null;
+  const sm = all.match(/(?:SUBTOTAL|BASE\s+GRAVABLE|BASE\s+IVA)[:\s]{1,5}(?:\$\s*)?([\d.,]{4,})/i);
+  const im = all.match(/(?:IVA|I\.V\.A\.?)\s+(?:\d{1,2}%)?[:\s]{1,5}(?:\$\s*)?([\d.,]{4,})/i);
+  if (sm) valorSubtotal = parseNum(sm[1]);
+  if (im) iva = parseNum(im[1]);
+
+  // ── NÚMERO DE FACTURA ──────────────────────────────────────
+  let factura = null;
+  const factPatterns = [
+    /(?:FACTURA|FAC)\.?\s*(?:DE\s+VENTA\s*)?(?:No\.?|N[°º]|#|Nro\.?)\s*:?\s*([A-Z0-9\-]{2,20})/i,
+    /(?:RECIBO|TIQUETE|TICKET)\s*(?:No\.?|N[°º]|#)?\s*:?\s*([A-Z0-9\-]{2,20})/i,
+    /(?:No\.?|N[°º])\s*:?\s*(\d{4,})/i,
+  ];
+  for (const re of factPatterns) {
+    const m = all.match(re);
+    if (m && m[1].length <= 20) { factura = m[1].trim(); break; }
+  }
+
+  // ── PROVEEDOR ──────────────────────────────────────────────
+  let proveedor = null;
+  const provPatterns = [
+    /(?:RAZÓN SOCIAL|RAZON SOCIAL|PROVEEDOR|EMPRESA)\s*:?\s*([A-ZÁÉÍÓÚÑ][^\n]{3,50})/i,
+    /NIT[:\s]+[\d.,\-]+\s*[\n\r]+([A-ZÁÉÍÓÚÑ][^\n]{3,50})/i,
+  ];
+  for (const re of provPatterns) {
+    const m = text.match(re);
+    if (m) { proveedor = m[1].trim().slice(0, 60); break; }
+  }
+  if (!proveedor) {
+    for (const line of lines.slice(0, 10)) {
+      if (line.length > 3 && line.length < 60 && /[A-ZÁÉÍÓÚÑ]{3}/.test(line)
+          && !/^\d/.test(line) && !/(NIT|TEL|DIR|FECHA|FAC|CUFE|DIAN|CL |CR )/i.test(line)) {
+        proveedor = line; break;
+      }
+    }
+  }
+
+  // ── FORMA DE PAGO ──────────────────────────────────────────
+  let formaPago = 'Transferencia';
+  if (/\befectivo\b/i.test(all)) formaPago = 'Efectivo';
+  else if (/\btarjeta\b/i.test(all)) formaPago = 'Tarjeta';
+  else if (/\bcheque\b/i.test(all)) formaPago = 'Cheque';
+  else if (/\btransfer/i.test(all) || /\bbancaria\b/i.test(all)) formaPago = 'Transferencia';
+  const fpm = all.match(/(?:FORMA\s+DE\s+PAGO|MEDIO\s+PAGO)\s*:?\s*(\w+)/i);
+  if (fpm) {
+    const k = fpm[1].toLowerCase();
+    if (k.includes('efect')) formaPago = 'Efectivo';
+    else if (k.includes('transf')) formaPago = 'Transferencia';
+    else if (k.includes('tarj') || k.includes('cred') || k.includes('deb')) formaPago = 'Tarjeta';
+  }
+
+  // ── DESCRIPCIÓN ────────────────────────────────────────────
+  let descripcion = null;
+  const dm = all.match(/(?:CONCEPTO|DESCRIPCI[OÓ]N|SERVICIO|PRODUCTO|DETALLE)\s*:?\s*([^\n]{4,60})/i);
+  if (dm) descripcion = dm[1].trim().slice(0, 60);
+  if (!descripcion && proveedor) descripcion = `Compra - ${proveedor}`.slice(0, 60);
+
+  // ── MODO PAGO ──────────────────────────────────────────────
+  if (mode === 'pago') {
+    let concepto = null, referencia = null, tipo = 'Anticipo';
+    const cm = all.match(/(?:CONCEPTO|MOTIVO|DESCRIPCI[OÓ]N)\s*:?\s*([^\n]{4,60})/i);
+    if (cm) concepto = cm[1].trim().slice(0, 60);
+    const rm = all.match(/(?:REFERENCIA|REF\.?|COMPROBANTE|TRANSACCI[OÓ]N|No\.?)\s*:?\s*([A-Z0-9\-]{4,30})/i);
+    if (rm) referencia = rm[1];
+    if (/\bancipo\b/i.test(all)) tipo = 'Anticipo';
+    else if (/pago\s+final/i.test(all)) tipo = 'Pago final';
+    else if (/\babono\b/i.test(all)) tipo = 'Abono';
+    return { fecha, concepto: concepto || descripcion, referencia, tipo, valor: valorTotal };
+  }
+
+  return { fecha, proveedor, factura, descripcion, valorTotal, valorSubtotal, iva, formaPago };
+};
+
+// ── COMPONENTE ANALIZAR DOCUMENTO ────────────────────────────
+const AnalyzeBtn = ({ onResult, mode = 'gasto' }) => {
+  const [status, setStatus] = useState('idle');
+  const [progress, setProgress] = useState(0);
+  const [msg, setMsg] = useState('');
+  const [preview, setPreview] = useState(null);
+  const fileRef = useRef();
+
+  const handle = async (file) => {
+    if (!file) return;
+    // Show preview
+    const objUrl = URL.createObjectURL(file);
+    setPreview({ url: objUrl, type: file.type, name: file.name });
+    setStatus('loading'); setProgress(0); setMsg('Cargando...');
+
+    try {
+      let text = '';
+
+      if (file.type === 'application/pdf') {
+        // Step 1: Try direct text extraction
+        setMsg('Extrayendo texto del PDF...');
+        try {
+          text = await extractPdfText(file);
+          const wordCount = text.trim().split(/\s+/).filter(w => w.length > 1).length;
+          if (wordCount < 15) throw new Error('PDF escaneado');
+          setMsg('Texto extraído. Analizando...');
+        } catch {
+          // Step 2: Render to image and OCR
+          setMsg('PDF escaneado detectado. Iniciando OCR (puede tardar)...');
+          const imgBlob = await renderPdfToImage(file);
+          text = await runOCR(imgBlob, p => { setProgress(p); setMsg(`Leyendo PDF: ${p}%`); });
+        }
+      } else {
+        // Image file
+        setMsg('Iniciando lectura (primera vez ~30 seg, descarga idioma español)...');
+        text = await runOCR(file, p => { setProgress(p); setMsg(`Leyendo imagen: ${p}%`); });
+      }
+
+      setMsg('Interpretando campos...');
+      const result = parseDocText(text, mode);
+
+      // Auto-apply result
+      onResult(result);
+      setStatus('done');
+      setMsg(`✅ Campos completados — revisa y ajusta si es necesario`);
+    } catch (e) {
+      setStatus('error');
+      setMsg(e.message);
+    }
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const reset = () => { setStatus('idle'); setMsg(''); setProgress(0); if (preview) { URL.revokeObjectURL(preview.url); setPreview(null); } };
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
+        onChange={e => handle(e.target.files[0])} />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: preview ? 10 : 0 }}>
+        <button
+          onClick={() => { if (status === 'loading') return; reset(); setTimeout(() => fileRef.current?.click(), 10); }}
+          disabled={status === 'loading'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+            background: status === 'done' ? '#16a34a' : status === 'error' ? '#dc2626' : '#16a34a',
+            border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 700,
+            cursor: status === 'loading' ? 'not-allowed' : 'pointer', opacity: status === 'loading' ? 0.6 : 1,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.15)'
+          }}>
+          {status === 'loading' ? '⏳ Leyendo...' : status === 'done' ? '✅ Listo — subir otro' : status === 'error' ? '❌ Reintentar' : '🔍 Leer Factura / Recibo'}
+        </button>
+        {status !== 'idle' && <button onClick={reset} style={{ fontSize: 11, background: 'none', border: '1px solid #cbd5e1', borderRadius: 5, color: '#64748b', padding: '4px 8px', cursor: 'pointer' }}>✕ Limpiar</button>}
+        <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>Sin API · 100% local · Gratis</span>
+      </div>
+
+      {status === 'loading' && (
+        <div style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 12px', marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: '#475569', marginBottom: progress > 0 ? 6 : 0 }}>{msg}</div>
+          {progress > 0 && (
+            <div style={{ height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#16a34a', width: `${progress}%`, transition: 'width .3s' }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {status === 'done' && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '7px 12px', marginTop: 6, fontSize: 12, color: '#15803d' }}>{msg}</div>
+      )}
+      {status === 'error' && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '7px 12px', marginTop: 6, fontSize: 12, color: '#dc2626' }}>
+          ❌ {msg}<br /><span style={{ fontSize: 11, color: '#64748b' }}>Verifica que el archivo sea claro y estés conectado a internet la primera vez.</span>
+        </div>
+      )}
+
+      {preview && (
+        <div style={{ marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden', maxWidth: 320 }}>
+          <div style={{ background: '#f8fafc', padding: '4px 8px', fontSize: 11, color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+            <span>📎 {preview.name}</span>
+            <button onClick={reset} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 12 }}>✕</button>
+          </div>
+          {preview.type.startsWith('image/') && (
+            <img src={preview.url} alt="preview" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', background: '#fff', display: 'block' }} />
+          )}
+          {preview.type === 'application/pdf' && (
+            <div style={{ padding: 12, textAlign: 'center', color: '#475569', fontSize: 12 }}>📄 PDF adjunto</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+// ── OT TAB ────────────────────────────────────────────────────
+const CARGOS=['Oficial','Ayudante','Maestro','Electricista','Plomero','Pintor','Enchapador','Carpintero','Contratista'];
+const ESTADO_OT=['Pendiente','Pagado','Parcial','Anulada'];
+
+const OTTab=({ots,onChange,projectId})=>{
+  const [view,setView]=useState('list'); // list | form | detail
+  const [selected,setSelected]=useState(null);
+  const [files,setFiles]=useState({});
+  const blank=()=>({id:uid(),numero:'',fecha:tod(),trabajador:{nombre:'',cc:'',cargo:'Oficial',eps:'',arl:'',banco:'',cuenta:''},periodo:{inicio:'',fin:''},items:[{id:uid(),desc:'',unidad:'jornal',cant:'',vUnit:'',vTotal:''}],deducciones:[],notas:'',estado:'Pendiente',fechaPago:'',formaPago:'',recibo:'',fileIds:[]});
+  const [form,setForm]=useState(blank());
+  const sf=(path,val)=>{
+    setForm(f=>{const copy=JSON.parse(JSON.stringify(f));
+      const keys=path.split('.');let o=copy;
+      keys.slice(0,-1).forEach(k=>o=o[k]);
+      o[keys[keys.length-1]]=val;return copy;
+    });
+  };
+
+  // Load files for list
+  useEffect(()=>{
+    if(!projectId)return;
+    dbGetByProject(projectId).then(all=>{
+      const map={};all.filter(f=>f.type==='ot').forEach(f=>{if(!map[f.meta?.otId])map[f.meta?.otId]=[];map[f.meta?.otId].push(f)});setFiles(map);
+    });
+  },[projectId,ots]);
+
+  const subtotal=useMemo(()=>form.items.reduce((s,it)=>s+(+it.cant*+it.vUnit||0),0),[form.items]);
+  const totalDed=useMemo(()=>form.deducciones.reduce((s,d)=>s+(+d.valor||0),0),[form.deducciones]);
+  const neto=subtotal-totalDed;
+
+  const saveOT=()=>{
+    const ot={...form,subtotal,totalDeducciones:totalDed,neto};
+    if(selected){onChange(ots.map(o=>o.id===selected?ot:o));}
+    else{onChange([...ots,ot]);}
+    setView('list');setSelected(null);setForm(blank());
+  };
+  const delOT=id=>{if(!confirm('¿Eliminar OT?'))return;onChange(ots.filter(o=>o.id!==id))};
+  const editOT=ot=>{setForm(JSON.parse(JSON.stringify(ot)));setSelected(ot.id);setView('form')};
+
+  const addItem=()=>setForm(f=>({...f,items:[...f.items,{id:uid(),desc:'',unidad:'jornal',cant:'',vUnit:'',vTotal:''}]}));
+  const updItem=(id,k,v)=>setForm(f=>({...f,items:f.items.map(it=>it.id===id?{...it,[k]:v}:it)}));
+  const delItem=id=>setForm(f=>({...f,items:f.items.filter(it=>it.id!==id)}));
+  const addDed=()=>setForm(f=>({...f,deducciones:[...f.deducciones,{id:uid(),concepto:'',valor:''}]}));
+  const updDed=(id,k,v)=>setForm(f=>({...f,deducciones:f.deducciones.map(d=>d.id===id?{...d,[k]:v}:d)}));
+  const delDed=id=>setForm(f=>({...f,deducciones:f.deducciones.filter(d=>d.id!==id)}));
+
+  const importExcel=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf);
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    // Parse common OT structure
+    const ot=blank();
+    ot.numero=file.name.replace('.xlsx','').replace('O.T. ','').split(' ')[0]||'';
+    rows.forEach((row,i)=>{
+      const r0=String(row[0]||'').trim().toUpperCase();
+      const r1=String(row[1]||'').trim();
+      if(r0.includes('TRABAJADOR')||r0.includes('NOMBRE'))ot.trabajador.nombre=r1||ot.trabajador.nombre;
+      if(r0.includes('CÉDULA')||r0.includes('CEDULA')||r0.includes('C.C'))ot.trabajador.cc=r1||ot.trabajador.cc;
+      if(r0.includes('CARGO'))ot.trabajador.cargo=r1||ot.trabajador.cargo;
+      if(r0.includes('PERÍODO')||r0.includes('PERIODO')||r0.includes('DESDE'))ot.periodo.inicio=r1||ot.periodo.inicio;
+      if(r0.includes('HASTA')||r0.includes('AL'))ot.periodo.fin=r1||ot.periodo.fin;
+      // Try to detect item rows (has numeric values in cols 4,5,6)
+      if(row[3]&&!isNaN(+row[3])&&row[4]&&!isNaN(+row[4])&&i>5){
+        ot.items.push({id:uid(),desc:String(row[1]||row[0]||'').trim(),unidad:String(row[2]||'jornal').trim(),cant:+row[3],vUnit:+row[4],vTotal:+row[5]||+row[3]*+row[4]});
+      }
+    });
+    if(ot.items.length===0)ot.items=[{id:uid(),desc:'',unidad:'jornal',cant:'',vUnit:'',vTotal:''}];
+    setForm(ot);setSelected(null);setView('form');
+    e.target.value='';
+  };
+
+  // DETAIL VIEW
+  if(view==='detail'&&selected){
+    const ot=ots.find(o=>o.id===selected);
+    if(!ot)return setView('list');
+    const otFiles=files[ot.id]||[];
+    return(
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button className="btn-ghost" onClick={()=>setView('list')}>← Volver</button>
+          <button className="btn-sm" onClick={()=>editOT(ot)}>✏️ Editar</button>
+          <span style={{fontWeight:700,fontSize:15,color:'#1e293b',flex:1}}>OT #{ot.numero} — {ot.trabajador.nombre}</span>
+          <span className={ot.estado==='Pagado'?'ok':ot.estado==='Parcial'?'warn':'none'}>{ot.estado}</span>
+        </div>
+        <div className="card" style={{padding:16}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:12}}>
+            {[['Trabajador',ot.trabajador.nombre],['CC/NIT',ot.trabajador.cc],['Cargo',ot.trabajador.cargo],
+              ['EPS',ot.trabajador.eps],['ARL',ot.trabajador.arl],['Período',`${ot.periodo.inicio} → ${ot.periodo.fin}`],
+              ['Banco',ot.trabajador.banco],['Cuenta',ot.trabajador.cuenta],['Fecha OT',ot.fecha]
+            ].map(([k,v])=><div key={k}><div style={{fontSize:10,color:'#94a3b8'}}>{k}</div><div style={{fontSize:13,fontWeight:500}}>{v||'—'}</div></div>)}
+          </div>
+          <div className="sec">Actividades Realizadas</div>
+          <table style={{width:'100%',borderCollapse:'collapse',marginBottom:12}}>
+            <thead><tr><th>Descripción</th><th>Unidad</th><th style={{textAlign:'right'}}>Cantidad</th><th style={{textAlign:'right'}}>V. Unitario</th><th style={{textAlign:'right'}}>V. Total</th></tr></thead>
+            <tbody>{ot.items.map((it,i)=>(
+              <tr key={it.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}>
+                <td>{it.desc}</td><td style={{color:'#94a3b8'}}>{it.unidad}</td>
+                <td style={{textAlign:'right'}}>{num(it.cant)}</td>
+                <td style={{textAlign:'right'}}>{cop(it.vUnit)}</td>
+                <td style={{textAlign:'right',fontWeight:600,color:'#e67e22'}}>{cop(+it.cant*+it.vUnit||+it.vTotal)}</td>
+              </tr>
+            ))}</tbody>
+            <tfoot>
+              <tr style={{borderTop:'1px solid #e2e8f0'}}><td colSpan={4} style={{textAlign:'right',fontWeight:700,padding:'8px 10px'}}>SUBTOTAL</td><td style={{textAlign:'right',fontWeight:700,color:'#e67e22'}}>{cop(ot.subtotal)}</td></tr>
+              {(ot.deducciones||[]).map(d=><tr key={d.id}><td colSpan={4} style={{textAlign:'right',color:'#e74c3c',padding:'4px 10px'}}>(-) {d.concepto}</td><td style={{textAlign:'right',color:'#e74c3c'}}>{cop(d.valor)}</td></tr>)}
+              <tr style={{borderTop:'2px solid #e67e22',background:'#eff6ff'}}><td colSpan={4} style={{textAlign:'right',fontWeight:700,padding:'8px 10px',color:'#1e293b'}}>TOTAL NETO A PAGAR</td><td style={{textAlign:'right',fontWeight:700,color:'#2ecc71',fontSize:15}}>{cop(ot.neto)}</td></tr>
+            </tfoot>
+          </table>
+          {ot.notas&&<div style={{fontSize:13,color:'#94a3b8',padding:'8px 12px',background:'#f1f5f9',borderRadius:6}}>📝 {ot.notas}</div>}
+          {ot.fechaPago&&<div style={{marginTop:8,fontSize:13,color:'#94a3b8'}}>Pagado: {ot.fechaPago} · {ot.formaPago} · Recibo: {ot.recibo||'—'}</div>}
+        </div>
+        <div className="card" style={{padding:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <div className="sec" style={{marginBottom:0}}>Documentos Adjuntos ({otFiles.length})</div>
+            <UploadBtn projectId={projectId} type="ot" meta={{otId:ot.id}} multiple onUploaded={recs=>{setFiles(prev=>({...prev,[ot.id]:[...(prev[ot.id]||[]),...recs]}))}} label="📎 Adjuntar"/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+            {otFiles.map(f=><FileThumb key={f.id} file={f} onDelete={async()=>{await dbDelete(f.id);setFiles(prev=>({...prev,[ot.id]:(prev[ot.id]||[]).filter(x=>x.id!==f.id)}))}}/>)}
+          </div>
+          {otFiles.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:16,fontSize:13}}>Sin documentos adjuntos</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // FORM VIEW
+  if(view==='form') return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <button className="btn-ghost" onClick={()=>{setView('list');setSelected(null);setForm(blank())}}>← Volver</button>
+        <span style={{fontWeight:700,fontSize:14,flex:1}}>{selected?'Editar OT':'Nueva OT'}</span>
+        <label className="btn-ghost" style={{cursor:'pointer',fontSize:12}}>📥 Importar Excel<input type="file" accept=".xlsx,.xls" onChange={importExcel} style={{display:'none'}}/></label>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Datos Generales</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="N° OT" val={form.numero} set={v=>sf('numero',v)} ph="252-25"/>
+          <Inp label="Fecha" type="date" val={form.fecha} set={v=>sf('fecha',v)}/>
+          <Sel label="Estado" val={form.estado} set={v=>sf('estado',v)} opts={ESTADO_OT}/>
+        </div>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Trabajador</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="Nombre completo" val={form.trabajador.nombre} set={v=>sf('trabajador.nombre',v)} wide/>
+          <Inp label="Cédula / CC" val={form.trabajador.cc} set={v=>sf('trabajador.cc',v)}/>
+          <Sel label="Cargo" val={form.trabajador.cargo} set={v=>sf('trabajador.cargo',v)} opts={CARGOS}/>
+          <Inp label="EPS" val={form.trabajador.eps} set={v=>sf('trabajador.eps',v)}/>
+          <Inp label="ARL" val={form.trabajador.arl} set={v=>sf('trabajador.arl',v)}/>
+          <Inp label="Banco" val={form.trabajador.banco} set={v=>sf('trabajador.banco',v)}/>
+          <Inp label="N° Cuenta" val={form.trabajador.cuenta} set={v=>sf('trabajador.cuenta',v)}/>
+          <Inp label="Período — Inicio" type="date" val={form.periodo.inicio} set={v=>sf('periodo.inicio',v)}/>
+          <Inp label="Período — Fin" type="date" val={form.periodo.fin} set={v=>sf('periodo.fin',v)}/>
+        </div>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div className="sec" style={{marginBottom:0}}>Actividades / Conceptos</div>
+          <button className="btn-sm" onClick={addItem}>+ Agregar</button>
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse',marginBottom:8}}>
+          <thead><tr><th>Descripción</th><th style={{width:100}}>Unidad</th><th style={{width:90,textAlign:'right'}}>Cant.</th><th style={{width:130,textAlign:'right'}}>V. Unitario</th><th style={{width:130,textAlign:'right'}}>V. Total</th><th style={{width:40}}></th></tr></thead>
+          <tbody>{form.items.map((it,i)=>(
+            <tr key={it.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}>
+              <td><input value={it.desc} onChange={e=>updItem(it.id,'desc',e.target.value)} className="inp" placeholder="Descripción actividad"/></td>
+              <td><input value={it.unidad} onChange={e=>updItem(it.id,'unidad',e.target.value)} className="inp" placeholder="jornal"/></td>
+              <td><input type="number" value={it.cant} onChange={e=>updItem(it.id,'cant',e.target.value)} className="inp" style={{textAlign:'right'}}/></td>
+              <td><input type="number" value={it.vUnit} onChange={e=>updItem(it.id,'vUnit',e.target.value)} className="inp" style={{textAlign:'right'}}/></td>
+              <td style={{textAlign:'right',fontWeight:600,color:'#e67e22'}}>{cop(+it.cant*+it.vUnit||0)}</td>
+              <td><button onClick={()=>delItem(it.id)} className="btn-del">🗑</button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+          <div className="sec" style={{marginBottom:0}}>Deducciones</div>
+          <button className="btn-sm" style={{background:'#4d0000',color:'#e74c3c',border:'1px solid #e74c3c'}} onClick={addDed}>+ Deducción</button>
+        </div>
+        {form.deducciones.map((d,i)=>(
+          <div key={d.id} style={{display:'grid',gridTemplateColumns:'1fr 130px auto',gap:8,marginBottom:6,alignItems:'end'}}>
+            <input value={d.concepto} onChange={e=>updDed(d.id,'concepto',e.target.value)} className="inp" placeholder="Ej: Salud 4%, Pensión 4%..."/>
+            <input type="number" value={d.valor} onChange={e=>updDed(d.id,'valor',e.target.value)} className="inp" placeholder="Valor ($)" style={{textAlign:'right'}}/>
+            <button onClick={()=>delDed(d.id)} className="btn-del">🗑</button>
+          </div>
+        ))}
+        <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end',marginTop:8,padding:'10px 12px',background:'#f1f5f9',borderRadius:6}}>
+          <div style={{fontSize:13,color:'#94a3b8'}}>Subtotal: <strong style={{color:'#e67e22'}}>{cop(subtotal)}</strong></div>
+          {totalDed>0&&<div style={{fontSize:13,color:'#e74c3c'}}>Deducciones: <strong>({cop(totalDed)})</strong></div>}
+          <div style={{fontSize:15,fontWeight:700,color:'#2ecc71'}}>NETO A PAGAR: {cop(neto)}</div>
+        </div>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Pago</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="Fecha de Pago" type="date" val={form.fechaPago} set={v=>sf('fechaPago',v)}/>
+          <Sel label="Forma de Pago" val={form.formaPago} set={v=>sf('formaPago',v)} opts={['','Efectivo','Transferencia','Nequi','Daviplata','Cheque']}/>
+          <Inp label="N° Recibo / Comprobante" val={form.recibo} set={v=>sf('recibo',v)}/>
+        </div>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <Inp label="Notas" val={form.notas} set={v=>sf('notas',v)} rows={2} ph="Observaciones adicionales..."/>
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        <button className="btn" onClick={saveOT}>💾 Guardar OT</button>
+        <button className="btn-ghost" onClick={()=>{setView('list');setSelected(null);setForm(blank())}}>Cancelar</button>
+      </div>
+    </div>
+  );
+
+  // LIST VIEW
+  const totNeto=ots.reduce((s,o)=>s+(+o.neto||0),0);
+  const totPagado=ots.filter(o=>o.estado==='Pagado').reduce((s,o)=>s+(+o.neto||0),0);
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+        <Kpi label="Total OTs" val={ots.length} icon="📋"/>
+        <Kpi label="Total a Pagar" val={cop(totNeto)} icon="💵"/>
+        <Kpi label="Total Pagado" val={cop(totPagado)} color="#2ecc71" icon="✅"/>
+        <Kpi label="Pendiente" val={cop(totNeto-totPagado)} color="#f39c12" icon="⏳"/>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+        <button className="btn" onClick={()=>{setForm(blank());setSelected(null);setView('form')}}>+ Nueva OT</button>
+      </div>
+      <div className="card" style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr><th>N° OT</th><th>Fecha</th><th>Trabajador</th><th>Cargo</th><th>Período</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Neto</th><th>Estado</th><th>Pago</th><th></th></tr></thead>
+          <tbody>{ots.length===0?<tr><td colSpan={10} style={{textAlign:'center',color:'#94a3b8',padding:24}}>No hay OTs. Crea la primera arriba.</td></tr>:ots.map((o,i)=>(
+            <tr key={o.id} style={{background:i%2===0?'#1a2332':'#1e2d3d',cursor:'pointer'}} onClick={()=>{setSelected(o.id);setView('detail')}}>
+              <td style={{fontWeight:600,color:'#60a5fa'}}>{o.numero||'—'}</td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{o.fecha}</td>
+              <td style={{fontWeight:500}}>{o.trabajador.nombre}</td>
+              <td><span className="none">{o.trabajador.cargo}</span></td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{o.periodo.inicio&&o.periodo.fin?`${o.periodo.inicio} → ${o.periodo.fin}`:o.periodo.inicio||'—'}</td>
+              <td style={{textAlign:'right',color:'#94a3b8'}}>{cop(o.subtotal)}</td>
+              <td style={{textAlign:'right',fontWeight:600,color:'#e67e22'}}>{cop(o.neto)}</td>
+              <td onClick={e=>e.stopPropagation()}>
+                <select value={o.estado} onChange={e=>onChange(ots.map(x=>x.id===o.id?{...x,estado:e.target.value}:x))}
+                  className={o.estado==='Pagado'?'ok':o.estado==='Parcial'?'warn':'none'}
+                  style={{background:'transparent',border:'none',cursor:'pointer',fontWeight:600,fontSize:11}}>
+                  {ESTADO_OT.map(s=><option key={s}>{s}</option>)}
+                </select>
+              </td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{o.fechaPago||'—'}</td>
+              <td onClick={e=>e.stopPropagation()} style={{whiteSpace:'nowrap'}}>
+                <button onClick={()=>{setForm(JSON.parse(JSON.stringify(o)));setSelected(o.id);setView('form')}} className="btn-del">✏️</button>
+                <button onClick={()=>delOT(o.id)} className="btn-del">🗑</button>
+              </td>
+            </tr>
+          ))}</tbody>
+          {ots.length>0&&<tfoot><tr style={{borderTop:'2px solid #e67e22',background:'#ffffff'}}>
+            <td colSpan={5} style={{textAlign:'right',fontWeight:700,padding:10}}>TOTALES</td>
+            <td style={{textAlign:'right',fontWeight:600,color:'#94a3b8'}}></td>
+            <td style={{textAlign:'right',fontWeight:700,color:'#e67e22',fontSize:14}}>{cop(totNeto)}</td>
+            <td colSpan={3}></td>
+          </tr></tfoot>}
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── FILE THUMBNAIL ────────────────────────────────────────────
+const FileThumb=({file,onDelete,onView})=>{
+  const [viewing,setViewing]=useState(false);
+  const isImg=file.mime&&file.mime.startsWith('image');
+  return(<>
+    {viewing&&<FileViewer fileId={file.id} onClose={()=>setViewing(false)}/>}
+    <div style={{background:'#f1f5f9',borderRadius:6,overflow:'hidden',border:'1px solid #e2e8f0',cursor:'pointer'}} onClick={()=>setViewing(true)}>
+      {isImg?<img src={file.data||''} alt={file.name} style={{width:'100%',height:80,objectFit:'cover'}} onError={async()=>{const r=await dbGet(file.id);if(r){}}}/>
+        :<div style={{height:80,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>{file.mime==='application/pdf'?'📄':'📎'}</div>}
+      <div style={{padding:'4px 6px'}}>
+        <div style={{fontSize:11,color:'#94a3b8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{file.name}</div>
+        <div style={{fontSize:10,color:'#94a3b8'}}>{fmtSize(file.size)}</div>
+      </div>
+      {onDelete&&<button onClick={e=>{e.stopPropagation();onDelete()}} className="btn-del" style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,.6)',borderRadius:3}}>✕</button>}
+    </div>
+  </>);
+};
+
+// ── FILE THUMB LAZY (loads from DB) ───────────────────────────
+const FileThumbDB=({fileId,onDelete})=>{
+  const [file,setFile]=useState(null);
+  const [viewing,setViewing]=useState(false);
+  useEffect(()=>{dbGet(fileId).then(setFile)},[fileId]);
+  if(!file)return<div style={{background:'#f1f5f9',borderRadius:6,height:100,display:'flex',alignItems:'center',justifyContent:'center',color:'#94a3b8',fontSize:20}}>⏳</div>;
+  const isImg=file.mime&&file.mime.startsWith('image');
+  return(<>
+    {viewing&&<FileViewer fileId={fileId} onClose={()=>setViewing(false)}/>}
+    <div style={{background:'#f1f5f9',borderRadius:6,overflow:'hidden',border:'1px solid #e2e8f0',cursor:'pointer',position:'relative'}} onClick={()=>setViewing(true)}>
+      {isImg?<img src={file.data} alt={file.name} style={{width:'100%',height:80,objectFit:'cover'}}/>
+        :<div style={{height:80,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>{file.mime==='application/pdf'?'📄':'📎'}</div>}
+      <div style={{padding:'4px 6px'}}>
+        <div style={{fontSize:11,color:'#94a3b8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{file.name}</div>
+        <div style={{fontSize:10,color:'#94a3b8'}}>{fmtSize(file.size)}</div>
+      </div>
+      {onDelete&&<button onClick={e=>{e.stopPropagation();onDelete()}} className="btn-del" style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,.7)',borderRadius:3,padding:'1px 5px'}}>✕</button>}
+    </div>
+  </>);
+};
+
+// ── CONTRATOS TAB ─────────────────────────────────────────────
+const TIPOS_CONTRATO=['Laboral','Prestación de Servicios','Obra y Labor','Suministro','Subcontrato','Otro'];
+const ESTADO_CONTRATO=['Vigente','Vencido','En revisión','Suspendido','Finalizado'];
+
+const ContratosTab=({contratos,onChange,projectId})=>{
+  const [dbFiles,setDbFiles]=useState([]);
+  const [showForm,setShowForm]=useState(false);
+  const [viewing,setViewing]=useState(null);
+  const blank=()=>({id:uid(),nombre:'',tipo:'Prestación de Servicios',contratista:'',cc:'',valor:'',inicio:'',fin:'',objeto:'',estado:'Vigente',notas:'',fileIds:[]});
+  const [form,setForm]=useState(blank());
+
+  useEffect(()=>{if(projectId)dbGetByProject(projectId).then(all=>setDbFiles(all.filter(f=>f.type==='contrato')))},[projectId,contratos]);
+
+  const save=()=>{
+    if(!form.nombre&&!form.contratista)return;
+    if(contratos.find(c=>c.id===form.id))onChange(contratos.map(c=>c.id===form.id?form:c));
+    else onChange([...contratos,form]);
+    setShowForm(false);setForm(blank());
+  };
+  const del=id=>{if(!confirm('¿Eliminar contrato?'))return;onChange(contratos.filter(c=>c.id!==id))};
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {viewing&&<FileViewer fileId={viewing} onClose={()=>setViewing(null)}/>}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <Kpi label="Total Contratos" val={contratos.length} icon="📄"/>
+          <Kpi label="Vigentes" val={contratos.filter(c=>c.estado==='Vigente').length} color="#2ecc71" icon="✅"/>
+        </div>
+        <button className="btn" onClick={()=>{setForm(blank());setShowForm(true)}}>+ Nuevo Contrato</button>
+      </div>
+
+      {showForm&&<div className="card" style={{padding:16,borderColor:'#3498db'}}>
+        <div className="sec">Datos del Contrato</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="Nombre / Título" val={form.nombre} set={v=>setForm(f=>({...f,nombre:v}))} wide/>
+          <Sel label="Tipo" val={form.tipo} set={v=>setForm(f=>({...f,tipo:v}))} opts={TIPOS_CONTRATO}/>
+          <Inp label="Contratista / Empresa" val={form.contratista} set={v=>setForm(f=>({...f,contratista:v}))}/>
+          <Inp label="CC / NIT" val={form.cc} set={v=>setForm(f=>({...f,cc:v}))}/>
+          <Inp label="Valor del Contrato ($)" type="number" val={form.valor} set={v=>setForm(f=>({...f,valor:v}))} pre="$"/>
+          <Inp label="Fecha Inicio" type="date" val={form.inicio} set={v=>setForm(f=>({...f,inicio:v}))}/>
+          <Inp label="Fecha Fin" type="date" val={form.fin} set={v=>setForm(f=>({...f,fin:v}))}/>
+          <Sel label="Estado" val={form.estado} set={v=>setForm(f=>({...f,estado:v}))} opts={ESTADO_CONTRATO}/>
+          <Inp label="Objeto del Contrato" val={form.objeto} set={v=>setForm(f=>({...f,objeto:v}))} rows={2} wide/>
+          <Inp label="Notas" val={form.notas} set={v=>setForm(f=>({...f,notas:v}))} rows={2} wide/>
+        </div>
+        <div style={{marginTop:12}}>
+          <div className="sec">Adjuntar Archivos del Contrato</div>
+          <Dropzone projectId={projectId} type="contrato" meta={{contratoId:form.id}} accept=".pdf,.doc,.docx,image/*"
+            onUploaded={recs=>setForm(f=>({...f,fileIds:[...(f.fileIds||[]),...recs.map(r=>r.id)]}))}
+            label="Arrastra el contrato (PDF, Word, imagen)"/>
+        </div>
+        <div style={{marginTop:12,display:'flex',gap:8}}>
+          <button className="btn" onClick={save}>Guardar Contrato</button>
+          <button className="btn-ghost" onClick={()=>{setShowForm(false);setForm(blank())}}>Cancelar</button>
+        </div>
+      </div>}
+
+      <div className="card" style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr><th>Nombre</th><th>Tipo</th><th>Contratista</th><th>CC/NIT</th><th style={{textAlign:'right'}}>Valor</th><th>Inicio</th><th>Fin</th><th>Estado</th><th>Archivos</th><th></th></tr></thead>
+          <tbody>{contratos.length===0?<tr><td colSpan={10} style={{textAlign:'center',color:'#94a3b8',padding:24}}>No hay contratos. Agrega el primero arriba.</td></tr>:contratos.map((c,i)=>{
+            const cfiles=dbFiles.filter(f=>f.meta?.contratoId===c.id||(c.fileIds||[]).includes(f.id));
+            return(<tr key={c.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}>
+              <td style={{fontWeight:600,color:'#1e293b'}}>{c.nombre}</td>
+              <td><span className="none">{c.tipo}</span></td>
+              <td>{c.contratista}</td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{c.cc}</td>
+              <td style={{textAlign:'right',color:'#e67e22',fontWeight:600}}>{cop(c.valor)}</td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{c.inicio}</td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{c.fin}</td>
+              <td><span className={c.estado==='Vigente'?'ok':c.estado==='Vencido'?'err':'warn'}>{c.estado}</span></td>
+              <td>
+                <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                  {cfiles.slice(0,3).map(f=><span key={f.id} onClick={()=>setViewing(f.id)} style={{cursor:'pointer',fontSize:16}}>{f.mime?.startsWith('image')?'🖼':'📄'}</span>)}
+                  {cfiles.length>0&&<span style={{fontSize:11,color:'#94a3b8'}}>{cfiles.length} arch.</span>}
+                  <UploadBtn projectId={projectId} type="contrato" meta={{contratoId:c.id}} multiple
+                    onUploaded={recs=>{onChange(contratos.map(x=>x.id===c.id?{...x,fileIds:[...(x.fileIds||[]),...recs.map(r=>r.id)]}:x))}}
+                    label="+" accept=".pdf,.doc,.docx,image/*"/>
+                </div>
+              </td>
+              <td>
+                <button onClick={()=>{setForm(JSON.parse(JSON.stringify(c)));setShowForm(true)}} className="btn-del">✏️</button>
+                <button onClick={()=>del(c.id)} className="btn-del">🗑</button>
+              </td>
+            </tr>);
+          })}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── INFORMES TAB ──────────────────────────────────────────────
+const InformesTab=({informes,onChange,projectId,proyecto})=>{
+  const [view,setView]=useState('list');
+  const [selected,setSelected]=useState(null);
+  const [infFiles,setInfFiles]=useState({});
+  const blank=()=>({id:uid(),fecha:tod(),titulo:'',descripcion:'',avanceGeneral:'',actividades:[{id:uid(),nombre:'',pct:'',obs:''}],condicionesClimaticas:'',personalPresente:'',observaciones:'',estado:'Borrador',fileIds:[]});
+  const [form,setForm]=useState(blank());
+
+  useEffect(()=>{
+    if(!projectId)return;
+    dbGetByProject(projectId).then(all=>{
+      const map={};all.filter(f=>f.type==='informe').forEach(f=>{const iid=f.meta?.informeId;if(iid){if(!map[iid])map[iid]=[];map[iid].push(f);}});
+      setInfFiles(map);
+    });
+  },[projectId,informes]);
+
+  const save=()=>{
+    if(!form.titulo&&!form.fecha)return;
+    if(informes.find(x=>x.id===form.id))onChange(informes.map(x=>x.id===form.id?form:x));
+    else onChange([...informes,form]);
+    setView('list');setSelected(null);setForm(blank());
+  };
+  const del=id=>{if(!confirm('¿Eliminar informe?'))return;onChange(informes.filter(x=>x.id!==id))};
+  const addAct=()=>setForm(f=>({...f,actividades:[...f.actividades,{id:uid(),nombre:'',pct:'',obs:''}]}));
+  const updAct=(id,k,v)=>setForm(f=>({...f,actividades:f.actividades.map(a=>a.id===id?{...a,[k]:v}:a)}));
+  const delAct=id=>setForm(f=>({...f,actividades:f.actividades.filter(a=>a.id!==id)}));
+
+  // DETAIL / PRINT VIEW
+  if(view==='detail'&&selected){
+    const inf=informes.find(x=>x.id===selected);if(!inf)return setView('list');
+    const ifiles=infFiles[inf.id]||[];
+    return(
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div className="noprint" style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button className="btn-ghost" onClick={()=>setView('list')}>← Volver</button>
+          <button className="btn-sm" onClick={()=>{setForm(JSON.parse(JSON.stringify(inf)));setSelected(inf.id);setView('form')}}>✏️ Editar</button>
+          <button className="btn-sm" style={{background:'#f8fafc',border:'1px solid #e2e8f0'}} onClick={()=>window.print()}>🖨 Imprimir</button>
+          <span style={{flex:1,fontWeight:700,fontSize:14}}>{inf.titulo||'Informe de Avance'}</span>
+          <span className={inf.estado==='Finalizado'?'ok':'warn'}>{inf.estado}</span>
+        </div>
+        <div className="card" style={{padding:20,background:'#fff',color:'#111',fontFamily:'Arial,sans-serif'}}>
+          {/* Print Header with SEKA Logo */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:'3px solid #0f1923',paddingBottom:14,marginBottom:16}}>
+            <SekaLogo w={150}/>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontWeight:900,fontSize:16,color:'#0f1923',textTransform:'uppercase',letterSpacing:1}}>Informe de Avance de Obra</div>
+              <div style={{fontSize:13,color:'#e67e22',fontWeight:700,marginTop:3}}>Informe N° {informes.findIndex(x=>x.id===inf.id)+1} — {inf.estado}</div>
+              <div style={{fontSize:12,color:'#333',marginTop:2}}>Fecha: {inf.fecha}</div>
+            </div>
+          </div>
+          {/* Project info band */}
+          <div style={{background:'#f8f9fa',border:'1px solid #dee2e6',borderRadius:6,padding:'10px 14px',marginBottom:14,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px 16px'}}>
+            {[['Proyecto',proyecto?.nombre||'—'],['Cliente',proyecto?.cliente||'—'],['Avance General',inf.avanceGeneral?inf.avanceGeneral+'%':'—'],
+              ['Personal Presente',inf.personalPresente||'—'],['Condiciones Climáticas',inf.condicionesClimaticas||'—'],['Período',inf.fecha]].map(([k,v])=>(
+              <div key={k} style={{display:'flex',gap:6}}>
+                <span style={{fontWeight:700,fontSize:11,color:'#555',minWidth:90}}>{k}:</span>
+                <span style={{fontSize:11,color:'#111'}}>{v}</span>
+              </div>
+            ))}
+          </div>
+          {/* Progress bar */}
+          {inf.avanceGeneral&&<div style={{marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,fontSize:11}}><span style={{color:'#333',fontWeight:700}}>Avance General de Obra</span><span style={{color:'#e67e22',fontWeight:700}}>{inf.avanceGeneral}%</span></div>
+            <div style={{height:12,background:'#dee2e6',borderRadius:6,overflow:'hidden'}}><div style={{height:'100%',background:'linear-gradient(90deg,#e67e22,#f39c12)',borderRadius:6,width:`${inf.avanceGeneral}%`,transition:'width .3s'}}/></div>
+          </div>}
+          {inf.descripcion&&<><div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:6,borderTop:'2px solid #0f1923',paddingTop:10,marginTop:10}}>Descripción General</div><p style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{inf.descripcion}</p></>}
+          {inf.actividades?.length>0&&<>
+            <div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:8,borderTop:'2px solid #0f1923',paddingTop:10,marginTop:10}}>Estado de Actividades</div>
+            <table style={{width:'100%',borderCollapse:'collapse',marginBottom:16}}>
+              <thead><tr><th>Actividad</th><th style={{width:90,textAlign:'center'}}>% Avance</th><th>Observaciones</th></tr></thead>
+              <tbody>{inf.actividades.map((a,i)=>(
+                <tr key={a.id} style={{background:i%2===0?'#fff':'#f8f9fa'}}>
+                  <td style={{border:'1px solid #dee2e6',padding:'5px 8px',fontSize:12,color:'#111'}}>{a.nombre}</td>
+                  <td style={{border:'1px solid #dee2e6',padding:'5px 8px',textAlign:'center'}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:3,alignItems:'center'}}>
+                      <span style={{fontSize:12,fontWeight:700,color:'#e67e22'}}>{a.pct}%</span>
+                      <div style={{width:80,height:6,background:'#dee2e6',borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',background:'#e67e22',width:`${a.pct||0}%`}}/></div>
+                    </div>
+                  </td>
+                  <td style={{border:'1px solid #dee2e6',padding:'5px 8px',color:'#555',fontSize:12}}>{a.obs}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </>}
+          {inf.observaciones&&<><div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:6,borderTop:'2px solid #0f1923',paddingTop:10,marginTop:10}}>Observaciones</div><p style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{inf.observaciones}</p></>}
+          {ifiles.length>0&&<>
+            <div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:8,borderTop:'2px solid #0f1923',paddingTop:10,marginTop:10}}>Registro Fotográfico ({ifiles.length} imágenes)</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+              {ifiles.map(f=><FileThumb key={f.id} file={f}/>)}
+            </div>
+          </>}
+          {/* Signatures block */}
+          <div style={{marginTop:28,paddingTop:14,borderTop:'2px solid #0f1923'}}>
+            <div style={{fontWeight:700,fontSize:11,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:16}}>Firmas de Aprobación</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24}}>
+              {[['Contratante / Cliente',proyecto?.cliente||'_______________'],['Contratista / SEKA Studio','_______________']].map(([r,n])=>(
+                <div key={r} style={{textAlign:'center'}}>
+                  <div style={{borderBottom:'1px solid #0f1923',paddingBottom:4,marginBottom:6,minHeight:36}}></div>
+                  <div style={{fontSize:11,fontWeight:700,color:'#0f1923'}}>{n}</div>
+                  <div style={{fontSize:10,color:'#555',marginTop:2}}>{r}</div>
+                  <div style={{fontSize:10,color:'#555',marginTop:2}}>Firma: _______________</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Document footer */}
+          <div style={{marginTop:16,paddingTop:10,borderTop:'1px solid #dee2e6',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <SekaLogo w={80}/>
+            <div style={{fontSize:10,color:'#666',textAlign:'right'}}>
+              <div>Bogotá, {inf.fecha}</div>
+              <div>SEKA Studio — Sistema de Gestión de Proyectos</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // FORM VIEW
+  if(view==='form') return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <button className="btn-ghost" onClick={()=>{setView('list');setForm(blank())}}>← Volver</button>
+        <span style={{fontWeight:700,fontSize:14,flex:1}}>{selected?'Editar Informe':'Nuevo Informe'}</span>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Encabezado</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="Fecha" type="date" val={form.fecha} set={v=>setForm(f=>({...f,fecha:v}))}/>
+          <Inp label="Título del Informe" val={form.titulo} set={v=>setForm(f=>({...f,titulo:v}))} ph="Informe semana 1..." wide/>
+          <Inp label="% Avance General" type="number" val={form.avanceGeneral} set={v=>setForm(f=>({...f,avanceGeneral:v}))} suf="%" ph="0-100"/>
+          <Inp label="Personal Presente" val={form.personalPresente} set={v=>setForm(f=>({...f,personalPresente:v}))} ph="3 oficiales, 2 ayudantes"/>
+          <Inp label="Condiciones Climáticas" val={form.condicionesClimaticas} set={v=>setForm(f=>({...f,condicionesClimaticas:v}))} ph="Soleado, lluvia parcial..."/>
+          <Sel label="Estado" val={form.estado} set={v=>setForm(f=>({...f,estado:v}))} opts={['Borrador','Finalizado']}/>
+        </div>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <Inp label="Descripción General de Trabajos Realizados" val={form.descripcion} set={v=>setForm(f=>({...f,descripcion:v}))} rows={4} ph="Descripción detallada de las actividades realizadas en el período..."/>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div className="sec" style={{marginBottom:0}}>Estado de Actividades</div>
+          <button className="btn-sm" onClick={addAct}>+ Agregar</button>
+        </div>
+        {form.actividades.map((a,i)=>(
+          <div key={a.id} style={{display:'grid',gridTemplateColumns:'2fr 100px 2fr auto',gap:8,marginBottom:8,alignItems:'end'}}>
+            <input value={a.nombre} onChange={e=>updAct(a.id,'nombre',e.target.value)} className="inp" placeholder="Nombre de la actividad"/>
+            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+              <label style={{fontSize:10,color:'#94a3b8'}}>% AVANCE</label>
+              <input type="number" min="0" max="100" value={a.pct} onChange={e=>updAct(a.id,'pct',e.target.value)} className="inp" placeholder="0-100"/>
+            </div>
+            <input value={a.obs} onChange={e=>updAct(a.id,'obs',e.target.value)} className="inp" placeholder="Observaciones"/>
+            <button onClick={()=>delAct(a.id)} className="btn-del">🗑</button>
+          </div>
+        ))}
+      </div>
+      <div className="card" style={{padding:16}}>
+        <Inp label="Observaciones y Compromisos" val={form.observaciones} set={v=>setForm(f=>({...f,observaciones:v}))} rows={3} ph="Novedades, compromisos, próximas actividades..."/>
+      </div>
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Registro Fotográfico</div>
+        <Dropzone projectId={projectId} type="informe" meta={{informeId:form.id}} accept="image/*,application/pdf"
+          onUploaded={recs=>{setForm(f=>({...f,fileIds:[...(f.fileIds||[]),...recs.map(r=>r.id)]}));setInfFiles(prev=>({...prev,[form.id]:[...(prev[form.id]||[]),...recs]}))}}
+          label="Arrastra fotos o PDFs del avance de obra"/>
+        {(infFiles[form.id]||[]).length>0&&<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginTop:12}}>
+          {(infFiles[form.id]||[]).map(f=><FileThumb key={f.id} file={f} onDelete={async()=>{await dbDelete(f.id);setInfFiles(p=>({...p,[form.id]:(p[form.id]||[]).filter(x=>x.id!==f.id)}));setForm(ff=>({...ff,fileIds:(ff.fileIds||[]).filter(x=>x!==f.id)}))}}/>)}
+        </div>}
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        <button className="btn" onClick={save}>💾 Guardar Informe</button>
+        <button className="btn-ghost" onClick={()=>{setView('list');setForm(blank())}}>Cancelar</button>
+      </div>
+    </div>
+  );
+
+  // LIST VIEW
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <Kpi label="Total Informes" val={informes.length} icon="📝"/>
+          <Kpi label="Finalizados" val={informes.filter(x=>x.estado==='Finalizado').length} color="#2ecc71" icon="✅"/>
+        </div>
+        <button className="btn" onClick={()=>{setForm(blank());setSelected(null);setView('form')}}>+ Nuevo Informe</button>
+      </div>
+      <div className="card" style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr><th>Fecha</th><th>Título</th><th style={{textAlign:'center'}}>Avance</th><th>Personal</th><th>Condiciones</th><th>Estado</th><th>Fotos</th><th></th></tr></thead>
+          <tbody>{informes.length===0?<tr><td colSpan={8} style={{textAlign:'center',color:'#94a3b8',padding:24}}>No hay informes. Crea el primero arriba.</td></tr>:informes.map((inf,i)=>{
+            const nf=(infFiles[inf.id]||[]).length;
+            return(<tr key={inf.id} style={{background:i%2===0?'#1a2332':'#1e2d3d',cursor:'pointer'}} onClick={()=>{setSelected(inf.id);setView('detail')}}>
+              <td style={{color:'#94a3b8',fontSize:12}}>{inf.fecha}</td>
+              <td style={{fontWeight:600,color:'#1e293b'}}>{inf.titulo||'Sin título'}</td>
+              <td style={{textAlign:'center'}}>
+                <div style={{display:'flex',flexDirection:'column',gap:2,alignItems:'center'}}>
+                  <span style={{fontWeight:600,color:'#e67e22',fontSize:13}}>{inf.avanceGeneral||0}%</span>
+                  <div className="pbar" style={{width:80}}><div className="pfill" style={{width:`${inf.avanceGeneral||0}%`}}/></div>
+                </div>
+              </td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{inf.personalPresente||'—'}</td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{inf.condicionesClimaticas||'—'}</td>
+              <td><span className={inf.estado==='Finalizado'?'ok':'warn'}>{inf.estado}</span></td>
+              <td style={{color:'#94a3b8'}}>{nf>0?`📷 ${nf}`:'—'}</td>
+              <td onClick={e=>e.stopPropagation()} style={{whiteSpace:'nowrap'}}>
+                <button onClick={()=>{setForm(JSON.parse(JSON.stringify(inf)));setSelected(inf.id);setView('form')}} className="btn-del">✏️</button>
+                <button onClick={()=>del(inf.id)} className="btn-del">🗑</button>
+              </td>
+            </tr>);
+          })}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── ACTAS DE MAYORES Y MENORES CANTIDADES ────────────────────
+const ESTADOS_ACTA=['Borrador','Aprobada','Firmada','Anulada'];
+const UNIDADES_ACTA=['m²','m³','ml','und','gl','kg','hr','día','mes'];
+
+const ActasTab=({actas,onChange,proyecto})=>{
+  const [view,setView]=useState('list');
+  const [selected,setSelected]=useState(null);
+  const blankItem=()=>({id:uid(),ref:'',desc:'',unidad:'m²',cant:'',vUnit:'',vTotal:0});
+  const blank=()=>({id:uid(),numero:'',fecha:tod(),periodoDesde:'',periodoHasta:'',
+    descripcion:'',mayores:[blankItem()],menores:[blankItem()],
+    observaciones:'',firmaContratante:proyecto?.cliente||'',
+    firmaContratista:'SEKA Studio S.A.S.',firmaInterventor:'',estado:'Borrador'});
+  const [form,setForm]=useState(blank());
+
+  const calcVT=(items)=>items.reduce((s,i)=>{
+    const v=parseFloat(i.cant||0)*parseFloat(i.vUnit||0);return s+v;},0);
+  const calcItem=(item)=>{const v=parseFloat(item.cant||0)*parseFloat(item.vUnit||0);return{...item,vTotal:v};};
+  const updateItems=(field,idx,key,val,items)=>{
+    const arr=items.map((it,i)=>{if(i!==idx)return it;const upd={...it,[key]:val};return key==='cant'||key==='vUnit'?calcItem(upd):upd;});
+    setForm(f=>({...f,[field]:arr}));
+  };
+  const addItem=(field)=>setForm(f=>({...f,[field]:[...f[field],blankItem()]}));
+  const removeItem=(field,idx)=>setForm(f=>({...f,[field]:f[field].filter((_,i)=>i!==idx)}));
+
+  const save=()=>{
+    if(!form.numero){alert('Ingresa el número de acta');return;}
+    if(actas.find(x=>x.id===form.id))onChange(actas.map(x=>x.id===form.id?form:x));
+    else onChange([...actas,form]);
+    setView('list');setForm(blank());setSelected(null);
+  };
+  const del=id=>{if(!confirm('¿Eliminar acta?'))return;onChange(actas.filter(x=>x.id!==id))};
+
+  // ── DETAIL / PRINT VIEW ─────────────────────────────────────
+  if(view==='detail'&&selected){
+    const ac=actas.find(x=>x.id===selected);if(!ac)return setView('list');
+    const totalMayores=calcVT(ac.mayores);
+    const totalMenores=calcVT(ac.menores);
+    const valorNeto=totalMayores-totalMenores;
+    const valorOriginal=parseFloat(proyecto?.valorContrato||0);
+    const valorNuevo=valorOriginal+valorNeto;
+    const stCol={color:ac.estado==='Aprobada'||ac.estado==='Firmada'?'#2ecc71':ac.estado==='Anulada'?'#e74c3c':'#f39c12'};
+    return(
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div className="noprint" style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button className="btn-ghost" onClick={()=>setView('list')}>← Volver</button>
+          <button className="btn-sm" onClick={()=>{setForm(JSON.parse(JSON.stringify(ac)));setSelected(ac.id);setView('form')}}>✏️ Editar</button>
+          <button className="btn-sm" style={{background:'#f8fafc',border:'1px solid #e2e8f0'}} onClick={()=>window.print()}>🖨 Imprimir</button>
+          <span style={{flex:1,fontWeight:700,fontSize:14}}>Acta N° {ac.numero}</span>
+          <span style={{padding:'2px 10px',borderRadius:12,fontSize:12,background:'#f1f5f9',border:'1px solid #e2e8f0',...stCol}}>{ac.estado}</span>
+        </div>
+
+        {/* ── PRINT-READY DOCUMENT ── */}
+        <div className="card" style={{padding:28,background:'#fff',color:'#111',fontFamily:'Arial,sans-serif'}}>
+          {/* Header */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:'3px solid #0f1923',paddingBottom:14,marginBottom:18}}>
+            <div><SekaLogo w={150}/></div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontWeight:900,fontSize:17,color:'#0f1923',textTransform:'uppercase',letterSpacing:1}}>Acta de Mayores y Menores Cantidades</div>
+              <div style={{fontSize:13,fontWeight:700,color:'#e67e22',marginTop:4}}>ACTA N° {ac.numero}</div>
+              <div style={{fontSize:12,color:'#333',marginTop:2}}>Fecha: {ac.fecha}</div>
+            </div>
+          </div>
+
+          {/* Project Info Box */}
+          <div style={{background:'#f8f9fa',border:'1px solid #dee2e6',borderRadius:6,padding:'10px 14px',marginBottom:18,display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 20px'}}>
+            {[['Proyecto',proyecto?.nombre||'—'],['Cliente',proyecto?.cliente||'—'],
+              ['Período',ac.periodoDesde&&ac.periodoHasta?`${ac.periodoDesde} al ${ac.periodoHasta}`:ac.periodoDesde||'—'],
+              ['Estado',ac.estado],['Contratante',ac.firmaContratante||'—'],['Contratista',ac.firmaContratista||'—']
+            ].map(([k,v])=>(
+              <div key={k} style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <span style={{fontWeight:700,fontSize:11,color:'#555',minWidth:80}}>{k}:</span>
+                <span style={{fontSize:11,color:'#111'}}>{v}</span>
+              </div>
+            ))}
+          </div>
+
+          {ac.descripcion&&<div style={{marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:6,borderBottom:'1px solid #dee2e6',paddingBottom:4}}>Antecedentes</div>
+            <p style={{fontSize:12,color:'#333',lineHeight:1.6,margin:0,whiteSpace:'pre-wrap'}}>{ac.descripcion}</p>
+          </div>}
+
+          {/* Mayores */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:12,color:'#155724',textTransform:'uppercase',letterSpacing:.5,marginBottom:8,background:'#d4edda',padding:'5px 10px',borderRadius:4,display:'flex',justifyContent:'space-between'}}>
+              <span>1. Mayores Cantidades (Adiciones)</span>
+              <span>Subtotal: {cop(totalMayores)}</span>
+            </div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead>
+                <tr style={{background:'#f8f9fa'}}>
+                  {['Ref.','Descripción','Unid.','Cant.','V. Unitario','V. Total'].map(h=>(
+                    <th key={h} style={{border:'1px solid #dee2e6',padding:'5px 7px',textAlign:h==='V. Total'||h==='V. Unitario'?'right':'left',fontWeight:700}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ac.mayores.filter(i=>i.desc||i.cant).length===0
+                  ?<tr><td colSpan={6} style={{border:'1px solid #dee2e6',padding:'8px',textAlign:'center',color:'#666',fontStyle:'italic'}}>Sin adiciones</td></tr>
+                  :ac.mayores.filter(i=>i.desc||i.cant).map((it,i)=>(
+                  <tr key={it.id} style={{background:i%2===0?'#fff':'#f8f9fa'}}>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',color:'#555'}}>{it.ref}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px'}}>{it.desc}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'center'}}>{it.unidad}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'right'}}>{it.cant}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'right'}}>{cop(parseFloat(it.vUnit||0))}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'right',fontWeight:700}}>{cop(it.vTotal)}</td>
+                  </tr>
+                ))}
+                <tr style={{background:'#d4edda'}}>
+                  <td colSpan={5} style={{border:'1px solid #dee2e6',padding:'5px 7px',fontWeight:700,textAlign:'right'}}>SUBTOTAL MAYORES</td>
+                  <td style={{border:'1px solid #dee2e6',padding:'5px 7px',fontWeight:700,textAlign:'right',color:'#155724'}}>{cop(totalMayores)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Menores */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:12,color:'#721c24',textTransform:'uppercase',letterSpacing:.5,marginBottom:8,background:'#f8d7da',padding:'5px 10px',borderRadius:4,display:'flex',justifyContent:'space-between'}}>
+              <span>2. Menores Cantidades (Deducciones)</span>
+              <span>Subtotal: {cop(totalMenores)}</span>
+            </div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead>
+                <tr style={{background:'#f8f9fa'}}>
+                  {['Ref.','Descripción','Unid.','Cant.','V. Unitario','V. Total'].map(h=>(
+                    <th key={h} style={{border:'1px solid #dee2e6',padding:'5px 7px',textAlign:h==='V. Total'||h==='V. Unitario'?'right':'left',fontWeight:700}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ac.menores.filter(i=>i.desc||i.cant).length===0
+                  ?<tr><td colSpan={6} style={{border:'1px solid #dee2e6',padding:'8px',textAlign:'center',color:'#666',fontStyle:'italic'}}>Sin deducciones</td></tr>
+                  :ac.menores.filter(i=>i.desc||i.cant).map((it,i)=>(
+                  <tr key={it.id} style={{background:i%2===0?'#fff':'#f8f9fa'}}>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',color:'#555'}}>{it.ref}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px'}}>{it.desc}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'center'}}>{it.unidad}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'right'}}>{it.cant}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'right'}}>{cop(parseFloat(it.vUnit||0))}</td>
+                    <td style={{border:'1px solid #dee2e6',padding:'4px 7px',textAlign:'right',fontWeight:700}}>{cop(it.vTotal)}</td>
+                  </tr>
+                ))}
+                <tr style={{background:'#f8d7da'}}>
+                  <td colSpan={5} style={{border:'1px solid #dee2e6',padding:'5px 7px',fontWeight:700,textAlign:'right'}}>SUBTOTAL MENORES</td>
+                  <td style={{border:'1px solid #dee2e6',padding:'5px 7px',fontWeight:700,textAlign:'right',color:'#721c24'}}>{cop(totalMenores)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Resumen Financiero */}
+          <div style={{marginBottom:18}}>
+            <div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:8,background:'#e9ecef',padding:'5px 10px',borderRadius:4}}>3. Resumen Financiero</div>
+            <table style={{width:'100%',maxWidth:420,borderCollapse:'collapse',fontSize:12,marginLeft:'auto'}}>
+              <tbody>
+                {[
+                  ['Valor original del contrato',cop(valorOriginal),'#333','normal'],
+                  ['(+) Mayores cantidades',cop(totalMayores),'#155724','normal'],
+                  ['(−) Menores cantidades',cop(totalMenores),'#721c24','normal'],
+                  ['Valor neto del acta',cop(Math.abs(valorNeto))+' ('+(valorNeto>=0?'adición':'deducción')+')',valorNeto>=0?'#155724':'#721c24','bold'],
+                  ['Nuevo valor del contrato',cop(valorNuevo),'#0f1923','900'],
+                ].map(([k,v,c,fw])=>(
+                  <tr key={k}>
+                    <td style={{padding:'5px 10px',border:'1px solid #dee2e6',fontWeight:fw==='900'?700:400,background:fw==='900'?'#0f1923':'#fff',color:fw==='900'?'#fff':'#333'}}>{k}</td>
+                    <td style={{padding:'5px 10px',border:'1px solid #dee2e6',textAlign:'right',fontWeight:fw,color:fw==='900'?'#fff':c,background:fw==='900'?'#0f1923':'#fff'}}>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {ac.observaciones&&<div style={{marginBottom:18}}>
+            <div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:6,borderBottom:'1px solid #dee2e6',paddingBottom:4}}>4. Observaciones</div>
+            <p style={{fontSize:12,color:'#333',lineHeight:1.6,margin:0,whiteSpace:'pre-wrap'}}>{ac.observaciones}</p>
+          </div>}
+
+          {/* Firmas */}
+          <div style={{marginTop:30}}>
+            <div style={{fontWeight:700,fontSize:12,color:'#0f1923',textTransform:'uppercase',letterSpacing:.5,marginBottom:18,borderBottom:'1px solid #dee2e6',paddingBottom:4}}>5. Firmas de Aprobación</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16}}>
+              {[['Contratante',ac.firmaContratante],['Contratista / SEKA Studio',ac.firmaContratista],['Interventor / Supervisor',ac.firmaInterventor]].map(([rol,nom])=>(
+                <div key={rol} style={{textAlign:'center'}}>
+                  <div style={{borderBottom:'1.5px solid #0f1923',paddingBottom:4,marginBottom:6,minHeight:40}}></div>
+                  <div style={{fontSize:11,fontWeight:700,color:'#0f1923'}}>{nom||'_______________'}</div>
+                  <div style={{fontSize:10,color:'#555',marginTop:2}}>{rol}</div>
+                  <div style={{fontSize:10,color:'#555',marginTop:2}}>C.C. _______________</div>
+                  <div style={{fontSize:10,color:'#555',marginTop:2}}>Firma: _______________</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{marginTop:20,paddingTop:10,borderTop:'1px solid #dee2e6',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <SekaLogo w={80}/>
+            <div style={{fontSize:10,color:'#666',textAlign:'right'}}>
+              <div>Bogotá, {ac.fecha}</div>
+              <div>Generado por SEKA Studio — Sistema de Gestión de Proyectos</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── FORM VIEW ───────────────────────────────────────────────
+  if(view==='form') return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <button className="btn-ghost" onClick={()=>{setView('list');setForm(blank())}}>← Volver</button>
+        <span style={{fontWeight:700,fontSize:14,flex:1}}>{selected?'Editar Acta':'Nueva Acta de Mayores y Menores'}</span>
+        <button className="btn" onClick={save}>💾 Guardar Acta</button>
+      </div>
+
+      {/* Encabezado */}
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Datos del Acta</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="N° de Acta *" val={form.numero} set={v=>setForm(f=>({...f,numero:v}))} ph="001"/>
+          <Inp label="Fecha" type="date" val={form.fecha} set={v=>setForm(f=>({...f,fecha:v}))}/>
+          <Sel label="Estado" val={form.estado} set={v=>setForm(f=>({...f,estado:v}))} opts={ESTADOS_ACTA}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:10}}>
+          <Inp label="Período Desde" type="date" val={form.periodoDesde} set={v=>setForm(f=>({...f,periodoDesde:v}))}/>
+          <Inp label="Período Hasta" type="date" val={form.periodoHasta} set={v=>setForm(f=>({...f,periodoHasta:v}))}/>
+        </div>
+        <div style={{marginTop:10}}>
+          <label style={{display:'block',fontSize:11,color:'#94a3b8',marginBottom:4}}>Antecedentes / Descripción</label>
+          <textarea value={form.descripcion} onChange={e=>setForm(f=>({...f,descripcion:e.target.value}))} rows={3}
+            style={{width:'100%',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:6,padding:'7px 10px',color:'#1e293b',fontSize:12,resize:'vertical',boxSizing:'border-box'}}
+            placeholder="Contexto del acta — por qué se generaron los cambios..."/>
+        </div>
+      </div>
+
+      {/* Mayores */}
+      <div className="card" style={{padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div className="sec" style={{margin:0}}>Mayores Cantidades (Adiciones) — Subtotal: <span style={{color:'#2ecc71'}}>{cop(calcVT(form.mayores))}</span></div>
+          <button className="btn-sm" onClick={()=>addItem('mayores')}>+ Ítem</button>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead><tr style={{background:'#f1f5f9'}}>
+              {['Ref.','Descripción','Unid.','Cant.','V. Unitario','V. Total',''].map(h=>(
+                <th key={h} style={{padding:'6px 8px',textAlign:h==='V. Total'||h==='V. Unitario'?'right':'left',color:'#94a3b8',fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>{form.mayores.map((it,i)=>(
+              <tr key={it.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}>
+                <td style={{padding:'4px 6px'}}><input value={it.ref} onChange={e=>updateItems('mayores',i,'ref',e.target.value,form.mayores)} style={{width:50,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11}}/></td>
+                <td style={{padding:'4px 6px'}}><input value={it.desc} onChange={e=>updateItems('mayores',i,'desc',e.target.value,form.mayores)} style={{width:180,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11}}/></td>
+                <td style={{padding:'4px 6px'}}><select value={it.unidad} onChange={e=>updateItems('mayores',i,'unidad',e.target.value,form.mayores)} style={{width:60,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 4px',color:'#1e293b',fontSize:11}}>{UNIDADES_ACTA.map(u=><option key={u}>{u}</option>)}</select></td>
+                <td style={{padding:'4px 6px'}}><input type="number" value={it.cant} onChange={e=>updateItems('mayores',i,'cant',e.target.value,form.mayores)} style={{width:70,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11,textAlign:'right'}}/></td>
+                <td style={{padding:'4px 6px'}}><input type="number" value={it.vUnit} onChange={e=>updateItems('mayores',i,'vUnit',e.target.value,form.mayores)} style={{width:100,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11,textAlign:'right'}}/></td>
+                <td style={{padding:'4px 8px',textAlign:'right',color:'#2ecc71',fontWeight:700}}>{cop(it.vTotal)}</td>
+                <td style={{padding:'4px 4px'}}><button onClick={()=>removeItem('mayores',i)} style={{background:'none',border:'none',color:'#e74c3c',cursor:'pointer',fontSize:14}}>✕</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Menores */}
+      <div className="card" style={{padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div className="sec" style={{margin:0}}>Menores Cantidades (Deducciones) — Subtotal: <span style={{color:'#e74c3c'}}>{cop(calcVT(form.menores))}</span></div>
+          <button className="btn-sm" onClick={()=>addItem('menores')}>+ Ítem</button>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead><tr style={{background:'#f1f5f9'}}>
+              {['Ref.','Descripción','Unid.','Cant.','V. Unitario','V. Total',''].map(h=>(
+                <th key={h} style={{padding:'6px 8px',textAlign:h==='V. Total'||h==='V. Unitario'?'right':'left',color:'#94a3b8',fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>{form.menores.map((it,i)=>(
+              <tr key={it.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}>
+                <td style={{padding:'4px 6px'}}><input value={it.ref} onChange={e=>updateItems('menores',i,'ref',e.target.value,form.menores)} style={{width:50,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11}}/></td>
+                <td style={{padding:'4px 6px'}}><input value={it.desc} onChange={e=>updateItems('menores',i,'desc',e.target.value,form.menores)} style={{width:180,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11}}/></td>
+                <td style={{padding:'4px 6px'}}><select value={it.unidad} onChange={e=>updateItems('menores',i,'unidad',e.target.value,form.menores)} style={{width:60,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 4px',color:'#1e293b',fontSize:11}}>{UNIDADES_ACTA.map(u=><option key={u}>{u}</option>)}</select></td>
+                <td style={{padding:'4px 6px'}}><input type="number" value={it.cant} onChange={e=>updateItems('menores',i,'cant',e.target.value,form.menores)} style={{width:70,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11,textAlign:'right'}}/></td>
+                <td style={{padding:'4px 6px'}}><input type="number" value={it.vUnit} onChange={e=>updateItems('menores',i,'vUnit',e.target.value,form.menores)} style={{width:100,background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:4,padding:'3px 5px',color:'#1e293b',fontSize:11,textAlign:'right'}}/></td>
+                <td style={{padding:'4px 8px',textAlign:'right',color:'#e74c3c',fontWeight:700}}>{cop(it.vTotal)}</td>
+                <td style={{padding:'4px 4px'}}><button onClick={()=>removeItem('menores',i)} style={{background:'none',border:'none',color:'#e74c3c',cursor:'pointer',fontSize:14}}>✕</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Resumen + Firmas + Observaciones */}
+      <div className="card" style={{padding:16}}>
+        <div className="sec">Resumen Financiero</div>
+        {(()=>{
+          const tM=calcVT(form.mayores),tMe=calcVT(form.menores),neto=tM-tMe;
+          const vo=parseFloat(proyecto?.valorContrato||0);
+          return(<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12}}>
+            <Kpi label="Valor Contrato Original" val={cop(vo)} color="#94a3b8" icon="📋"/>
+            <Kpi label="Total Mayores" val={cop(tM)} color="#2ecc71" icon="↑"/>
+            <Kpi label="Total Menores" val={cop(tMe)} color="#e74c3c" icon="↓"/>
+            <Kpi label="Valor Neto Acta" val={cop(Math.abs(neto))} color={neto>=0?'#2ecc71':'#e74c3c'} icon={neto>=0?'⊕':'⊖'}
+              sub={neto>=0?'Adición al contrato':'Deducción al contrato'}/>
+          </div>);
+        })()}
+
+        <div className="sec">Firmas</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:12}}>
+          <Inp label="Contratante" val={form.firmaContratante} set={v=>setForm(f=>({...f,firmaContratante:v}))} ph={proyecto?.cliente||'Nombre'}/>
+          <Inp label="Contratista" val={form.firmaContratista} set={v=>setForm(f=>({...f,firmaContratista:v}))}/>
+          <Inp label="Interventor / Supervisor" val={form.firmaInterventor} set={v=>setForm(f=>({...f,firmaInterventor:v}))} ph="Opcional"/>
+        </div>
+
+        <div className="sec">Observaciones</div>
+        <textarea value={form.observaciones} onChange={e=>setForm(f=>({...f,observaciones:e.target.value}))} rows={3}
+          style={{width:'100%',background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:6,padding:'7px 10px',color:'#1e293b',fontSize:12,resize:'vertical',boxSizing:'border-box'}}
+          placeholder="Observaciones, condiciones, acuerdos..."/>
+      </div>
+
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+        <button className="btn-ghost" onClick={()=>{setView('list');setForm(blank())}}>Cancelar</button>
+        <button className="btn" onClick={save}>💾 Guardar Acta</button>
+      </div>
+    </div>
+  );
+
+  // ── LIST VIEW ────────────────────────────────────────────────
+  const stColor=s=>s==='Firmada'?'#2ecc71':s==='Aprobada'?'#3498db':s==='Anulada'?'#e74c3c':'#f39c12';
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <h3 style={{margin:0,fontSize:15,fontWeight:700}}>📝 Actas de Mayores y Menores</h3>
+        <button className="btn" onClick={()=>{setForm(blank());setSelected(null);setView('form')}}>+ Nueva Acta</button>
+      </div>
+      {/* KPIs */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+        <Kpi label="Total Actas" val={actas.length} icon="📋"/>
+        <Kpi label="Total Mayores" val={cop(actas.reduce((s,a)=>s+calcVT(a.mayores),0))} color="#2ecc71" icon="↑"/>
+        <Kpi label="Total Menores" val={cop(actas.reduce((s,a)=>s+calcVT(a.menores),0))} color="#e74c3c" icon="↓"/>
+        <Kpi label="Impacto Neto" val={cop(Math.abs(actas.reduce((s,a)=>s+(calcVT(a.mayores)-calcVT(a.menores)),0)))}
+          color={actas.reduce((s,a)=>s+(calcVT(a.mayores)-calcVT(a.menores)),0)>=0?'#2ecc71':'#e74c3c'} icon="⇅"/>
+      </div>
+
+      {/* What is this? */}
+      {actas.length===0&&<div className="card" style={{padding:20,textAlign:'center'}}>
+        <div style={{fontSize:32,marginBottom:8}}>📋</div>
+        <div style={{fontWeight:700,marginBottom:6}}>¿Qué son las Actas de Mayores y Menores?</div>
+        <div style={{fontSize:13,color:'#94a3b8',lineHeight:1.6,maxWidth:500,margin:'0 auto'}}>
+          Son documentos que formalizan los cambios al contrato original. Las <strong style={{color:'#2ecc71'}}>Mayores Cantidades</strong> son adiciones de trabajo o materiales que incrementan el valor del contrato. Las <strong style={{color:'#e74c3c'}}>Menores Cantidades</strong> son reducciones que lo disminuyen. Ambas requieren firma del contratante y contratista.
+        </div>
+        <button className="btn" style={{marginTop:14}} onClick={()=>{setForm(blank());setSelected(null);setView('form')}}>Crear Primera Acta</button>
+      </div>}
+
+      {actas.length>0&&<table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+        <thead><tr style={{background:'#f1f5f9'}}>
+          {['N° Acta','Fecha','Período','Mayores','Menores','Neto','Estado',''].map(h=>(
+            <th key={h} style={{padding:'8px 10px',textAlign:'left',color:'#94a3b8',fontWeight:600}}>{h}</th>
+          ))}
+        </tr></thead>
+        <tbody>{actas.map((ac,i)=>{
+          const tM=calcVT(ac.mayores),tMe=calcVT(ac.menores),neto=tM-tMe;
+          return(
+          <tr key={ac.id} style={{background:i%2===0?'#1a2332':'#1e2d3d',cursor:'pointer'}} onClick={()=>{setSelected(ac.id);setView('detail')}}>
+            <td style={{padding:'8px 10px',fontWeight:700,color:'#e67e22'}}>#{ac.numero||'—'}</td>
+            <td style={{padding:'8px 10px'}}>{ac.fecha}</td>
+            <td style={{padding:'8px 10px',color:'#94a3b8',fontSize:11}}>{ac.periodoDesde&&ac.periodoHasta?`${ac.periodoDesde} → ${ac.periodoHasta}`:ac.periodoDesde||'—'}</td>
+            <td style={{padding:'8px 10px',color:'#2ecc71',fontWeight:600}}>{cop(tM)}</td>
+            <td style={{padding:'8px 10px',color:'#e74c3c',fontWeight:600}}>{cop(tMe)}</td>
+            <td style={{padding:'8px 10px',fontWeight:700,color:neto>=0?'#2ecc71':'#e74c3c'}}>{neto>=0?'+':'-'}{cop(Math.abs(neto))}</td>
+            <td style={{padding:'8px 10px'}}><span style={{color:stColor(ac.estado),fontWeight:600}}>{ac.estado}</span></td>
+            <td style={{padding:'8px 5px'}}>
+              <button onClick={e=>{e.stopPropagation();setForm(JSON.parse(JSON.stringify(ac)));setSelected(ac.id);setView('form')}} style={{background:'none',border:'none',color:'#94a3b8',cursor:'pointer',marginRight:4}}>✏️</button>
+              <button onClick={e=>{e.stopPropagation();del(ac.id)}} style={{background:'none',border:'none',color:'#e74c3c',cursor:'pointer'}}>🗑</button>
+            </td>
+          </tr>);
+        })}</tbody>
+      </table>}
+    </div>
+  );
+};
+// ── GASTOS CON FACTURA ────────────────────────────────────────
+const CATS=['Materiales','Mano de Obra','Honorarios Subcontratistas','Transporte','Herramientas/Equipos','Imprevistos','Administrativo','Otros'];
+const FPAGOS=['Efectivo','Transferencia','Nequi','Daviplata','Cheque','Crédito 30d'];
+const GastosTab=({gastos,onChange,partidas,projectId})=>{
+  const [show,setShow]=useState(false);
+  const [viewing,setViewing]=useState(null);
+  const emptyF=()=>({fecha:tod(),partida:'',desc:'',proveedor:'',factura:'',categoria:'Materiales',formaPago:'Transferencia',valorFact:'',valorPag:'',fileId:null});
+  const [f,setF]=useState(emptyF());
+  const sf=(k,v)=>setF(x=>({...x,[k]:v}));
+  const totF=useMemo(()=>gastos.reduce((s,g)=>s+(+g.valorFact||0),0),[gastos]);
+  const totP=useMemo(()=>gastos.reduce((s,g)=>s+(+g.valorPag||0),0),[gastos]);
+  const totPres=useMemo(()=>partidas.filter(p=>!p.esCapitulo).reduce((s,p)=>s+(+p.cant*+p.vUnit||0),0),[partidas]);
+  const add=()=>{if(!f.valorPag&&!f.valorFact)return;onChange([...gastos,{...f,id:uid()}]);setF(emptyF());setShow(false)};
+  const del=id=>onChange(gastos.filter(g=>g.id!==id));
+  const items=partidas.filter(p=>!p.esCapitulo).map(p=>`${p.item} — ${p.desc}`);
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {viewing&&<FileViewer fileId={viewing} onClose={()=>setViewing(null)}/>}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+        <Kpi label="Total Facturado" val={cop(totF)} icon="🧾"/>
+        <Kpi label="Total Pagado" val={cop(totP)} color="#e74c3c" icon="💸"/>
+        <Kpi label="vs Presupuesto" val={pct(totPres?totP/totPres:0)} color={totP>totPres?'#e74c3c':'#2ecc71'} icon="📊"/>
+        <Kpi label="Por Pagar" val={cop(totF-totP)} color="#f39c12" icon="⏳"/>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end'}}><button className="btn" onClick={()=>setShow(!show)}>+ Registrar Gasto</button></div>
+      {show&&<div className="card" style={{padding:14,borderColor:'#e74c3c'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div className="sec" style={{margin:0}}>Nuevo Gasto</div>
+          <AnalyzeBtn mode="gasto" onResult={r=>{
+            if(!r)return;
+            // Normalize date
+            let fd=tod();
+            if(r.fecha){try{const d=new Date(r.fecha);if(!isNaN(d.getTime()))fd=d.toISOString().slice(0,10);}catch{}}
+            // Match forma pago
+            const fpMap={'efectivo':'Efectivo','transferencia':'Transferencia','tarjeta':'Tarjeta','crédito':'Crédito','cheque':'Cheque','débito':'Tarjeta'};
+            let fp='Transferencia';
+            if(r.formaPago){const k=r.formaPago.toLowerCase();for(const[p,v]of Object.entries(fpMap)){if(k.includes(p)){fp=v;break;}}}
+            setF(x=>({...x,
+              fecha:fd,
+              proveedor:r.proveedor||x.proveedor,
+              factura:r.factura||x.factura,
+              desc:r.descripcion||x.desc,
+              formaPago:fp,
+              valorFact:r.valorTotal!=null?String(Math.round(r.valorTotal)):x.valorFact,
+              valorPag:r.valorTotal!=null?String(Math.round(r.valorTotal)):x.valorPag,
+            }));
+          }}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+          <Inp label="Fecha" type="date" val={f.fecha} set={v=>sf('fecha',v)}/>
+          <div><label style={{display:'block',fontSize:10,color:'#94a3b8',marginBottom:3,textTransform:'uppercase'}}>Partida</label>
+            <select value={f.partida} onChange={e=>sf('partida',e.target.value)} className="inp"><option value="">Sin partida</option>{items.map(d=><option key={d} value={d}>{d}</option>)}</select></div>
+          <Inp label="Descripción" val={f.desc} set={v=>sf('desc',v)} ph="Detalle del gasto"/>
+          <Inp label="Proveedor / Contratista" val={f.proveedor} set={v=>sf('proveedor',v)}/>
+          <Inp label="Factura / Referencia" val={f.factura} set={v=>sf('factura',v)}/>
+          <Sel label="Categoría" val={f.categoria} set={v=>sf('categoria',v)} opts={CATS}/>
+          <Sel label="Forma de Pago" val={f.formaPago} set={v=>sf('formaPago',v)} opts={FPAGOS}/>
+          <Inp label="Valor Facturado ($)" type="number" val={f.valorFact} set={v=>sf('valorFact',v)} pre="$"/>
+          <Inp label="Valor Pagado ($)" type="number" val={f.valorPag} set={v=>sf('valorPag',v)} pre="$"/>
+        </div>
+        <div style={{marginTop:10}}>
+          <div style={{fontSize:10,color:'#94a3b8',marginBottom:6,textTransform:'uppercase'}}>📎 Adjuntar factura (foto o PDF)</div>
+          {f.fileId?<div style={{display:'flex',gap:8,alignItems:'center',padding:'8px 12px',background:'#f1f5f9',borderRadius:6}}>
+            <span style={{fontSize:13,color:'#2ecc71'}}>✅ Factura adjunta</span>
+            <button className="btn-sm" onClick={()=>setViewing(f.fileId)}>Ver</button>
+            <button className="btn-del" onClick={()=>sf('fileId',null)}>✕</button>
+          </div>:
+          <UploadBtn projectId={projectId} type="factura" accept="image/*,application/pdf" label="📷 Subir foto/PDF de factura"
+            onUploaded={recs=>{if(recs[0])sf('fileId',recs[0].id)}}/>}
+        </div>
+        <div style={{marginTop:10,display:'flex',gap:8}}>
+          <button className="btn" onClick={add}>Guardar</button>
+          <button className="btn-ghost" onClick={()=>{setShow(false);setF(emptyF())}}>Cancelar</button>
+        </div>
+      </div>}
+      <div className="card" style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr><th>#</th><th>Fecha</th><th>Partida</th><th>Descripción</th><th>Proveedor</th><th>Factura</th><th>Cat.</th><th>Pago</th><th style={{textAlign:'right'}}>Facturado</th><th style={{textAlign:'right'}}>Pagado</th><th style={{textAlign:'right'}}>%</th><th>Doc</th><th></th></tr></thead>
+          <tbody>{gastos.length===0?<tr><td colSpan={13} style={{textAlign:'center',color:'#94a3b8',padding:20}}>No hay gastos</td></tr>:gastos.map((g,i)=>{
+            const pp=+g.valorFact>0?+g.valorPag/+g.valorFact:null;
+            return(<tr key={g.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}>
+              <td style={{color:'#94a3b8'}}>{i+1}</td><td style={{color:'#94a3b8',fontSize:12}}>{g.fecha}</td>
+              <td style={{color:'#94a3b8',fontSize:11}}>{g.partida?(g.partida.split('—')[0]||'').trim():'—'}</td>
+              <td style={{fontWeight:500}}>{g.desc}</td><td style={{color:'#94a3b8'}}>{g.proveedor}</td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{g.factura}</td>
+              <td><span className="none" style={{fontSize:10}}>{g.categoria}</span></td>
+              <td style={{color:'#94a3b8',fontSize:12}}>{g.formaPago}</td>
+              <td style={{textAlign:'right',color:'#94a3b8'}}>{cop(g.valorFact)}</td>
+              <td style={{textAlign:'right',fontWeight:600,color:'#e74c3c'}}>{cop(g.valorPag)}</td>
+              <td style={{textAlign:'right'}}>{pp!==null?<span className={pp>=1?'ok':pp>0?'warn':'err'}>{pct(pp)}</span>:'—'}</td>
+              <td>{g.fileId&&<button className="btn-sm" style={{fontSize:11,padding:'2px 6px'}} onClick={()=>setViewing(g.fileId)}>📄 Ver</button>}</td>
+              <td><button onClick={()=>del(g.id)} className="btn-del">🗑</button></td>
+            </tr>);
+          })}</tbody>
+          {gastos.length>0&&<tfoot><tr style={{borderTop:'2px solid #e74c3c',background:'#ffffff'}}>
+            <td colSpan={8} style={{textAlign:'right',fontWeight:700,padding:10}}>TOTALES</td>
+            <td style={{textAlign:'right',fontWeight:600,color:'#94a3b8'}}>{cop(totF)}</td>
+            <td style={{textAlign:'right',fontWeight:700,color:'#e74c3c',fontSize:14}}>{cop(totP)}</td>
+            <td colSpan={3}></td>
+          </tr></tfoot>}
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── BACKUP + PROJECT MANAGER (condensed) ──────────────────────
+const BackupPanel=({projectId,projectName,currentData,onRestore,onClose})=>{
+  const [backups,setBackups]=useState(loadBackups(projectId));
+  const [label,setLabel]=useState('');const [msg,setMsg]=useState('');
+  const doSave=()=>{const l=label.trim()||`Backup ${tsLabel(Date.now())}`;saveBackup(projectId,l,currentData);setBackups(loadBackups(projectId));setLabel('');setMsg('✅ Guardado');setTimeout(()=>setMsg(''),2000)};
+  const doDelete=ts=>{if(!confirm('¿Eliminar?'))return;deleteBackup(projectId,ts);setBackups(loadBackups(projectId))};
+  const doRestore=b=>{if(!confirm(`¿Restaurar "${b.label}"?`))return;onRestore(b.data);onClose()};
+  const doExport=()=>{const bl=new Blob([JSON.stringify({project:currentData,backups,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=`SEKA_${projectName||'proyecto'}_${tod()}.json`;a.click()};
+  const fRef=useRef();
+  const doImport=e=>{const fi=e.target.files[0];if(!fi)return;const r=new FileReader();r.onload=ev=>{try{const d=JSON.parse(ev.target.result);onRestore(d.project||d);onClose()}catch{alert('Archivo inválido')}};r.readAsText(fi)};
+  return(<div className="modal"><div className="modal-box" style={{width:560}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div style={{fontWeight:700,fontSize:15}}>💾 Backups — {projectName}</div><button className="btn-ghost" onClick={onClose} style={{padding:'3px 10px'}}>✕</button></div>
+    <div style={{background:'#f1f5f9',borderRadius:8,padding:14,marginBottom:12}}>
+      <div className="sec">Crear backup</div>
+      <div style={{display:'flex',gap:8}}><input value={label} onChange={e=>setLabel(e.target.value)} placeholder="Nombre (opcional)" className="inp" style={{flex:1}}/><button className="btn" onClick={doSave}>💾 Guardar</button></div>
+      {msg&&<div style={{marginTop:6,fontSize:12,color:'#2ecc71'}}>{msg}</div>}
+    </div>
+    <div style={{marginBottom:12}}>
+      <div className="sec">Backups ({backups.length}/{MAX_BACKS})</div>
+      {backups.length===0?<div style={{textAlign:'center',color:'#94a3b8',padding:16,fontSize:13}}>Sin backups</div>:backups.map(b=>(
+        <div key={b.ts} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:'#f8fafc',borderRadius:6,marginBottom:5}}>
+          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{b.label}</div><div style={{fontSize:11,color:'#94a3b8'}}>{tsLabel(b.ts)}</div></div>
+          <button className="btn-sm" onClick={()=>doRestore(b)} style={{background:'#1a4731',color:'#2ecc71',border:'1px solid #2ecc71'}}>Restaurar</button>
+          <button onClick={()=>doDelete(b.ts)} className="btn-del">🗑</button>
+        </div>
+      ))}
+    </div>
+    <div style={{background:'#f1f5f9',borderRadius:8,padding:14}}>
+      <div className="sec">Exportar / Importar</div>
+      <div style={{display:'flex',gap:8}}>
+        <button className="btn" onClick={doExport} style={{flex:1}}>⬇ Exportar JSON</button>
+        <label className="btn-ghost" style={{flex:1,textAlign:'center',cursor:'pointer'}}>⬆ Importar JSON<input ref={fRef} type="file" accept=".json" onChange={doImport} style={{display:'none'}}/></label>
+      </div>
+    </div>
+  </div></div>);
+};
+
+const ProjectManager=({onSelect,onClose})=>{
+  const [projects,setProjects]=useState(loadProjects());
+  const [newName,setNewName]=useState('');
+  const create=()=>{const name=newName.trim();if(!name)return;const id=uid();saveProject(id,name,EMPTY_PROJECT);setProjects(loadProjects());onSelect(id,name,EMPTY_PROJECT)};
+  const createBano80=()=>{const id=uid();saveProject(id,'BAÑO 80',BANO80_DATA);setProjects(loadProjects());onSelect(id,'BAÑO 80',BANO80_DATA)};
+  const del=id=>{if(!confirm('¿Eliminar proyecto?'))return;deleteProject(id);setProjects(loadProjects())};
+  return(<div className="modal"><div className="modal-box" style={{width:520}}>
+    <div style={{textAlign:'center',marginBottom:20}}>
+      <div style={{fontSize:32,fontWeight:900,color:'#e67e22'}}>S</div>
+      <div style={{fontWeight:700,fontSize:16}}>SEKA STUDIO</div>
+      <div style={{fontSize:12,color:'#94a3b8'}}>Selecciona o crea un proyecto</div>
+    </div>
+    {Object.values(projects).length>0&&<div style={{marginBottom:14}}>
+      <div className="sec">Proyectos guardados</div>
+      {Object.values(projects).sort((a,b)=>b.lastSaved-a.lastSaved).map(p=>(
+        <div key={p.id} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',background:'#f8fafc',borderRadius:6,marginBottom:5,cursor:'pointer'}} onClick={()=>onSelect(p.id,p.name,p.data)}>
+          <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>📁 {p.name}</div><div style={{fontSize:11,color:'#94a3b8'}}>{tsLabel(p.lastSaved)}</div></div>
+          <button className="btn-sm" onClick={e=>{e.stopPropagation();onSelect(p.id,p.name,p.data)}}>Abrir</button>
+          <button onClick={e=>{e.stopPropagation();del(p.id)}} className="btn-del">🗑</button>
+        </div>
+      ))}
+    </div>}
+    <div style={{background:'#f1f5f9',borderRadius:8,padding:14,marginBottom:10}}>
+      <div className="sec">Crear proyecto</div>
+      <div style={{display:'flex',gap:8,marginBottom:8}}><input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Nombre del proyecto" className="inp" style={{flex:1}} onKeyDown={e=>e.key==='Enter'&&create()}/><button className="btn" onClick={create}>Crear</button></div>
+      <button className="btn-ghost" style={{width:'100%',fontSize:12}} onClick={createBano80}>📋 Cargar plantilla BAÑO 80 (datos reales)</button>
+    </div>
+    <div style={{textAlign:'center'}}>
+      <label className="btn-ghost" style={{cursor:'pointer',fontSize:12}}>⬆ Importar desde JSON<input type="file" accept=".json" style={{display:'none'}} onChange={e=>{const fi=e.target.files[0];if(!fi)return;const r=new FileReader();r.onload=ev=>{try{const d=JSON.parse(ev.target.result);const data=d.project||d;const name=data.proyecto?.nombre||'Importado';const id=uid();saveProject(id,name,data);setProjects(loadProjects());onSelect(id,name,data)}catch{alert('Archivo inválido')}};r.readAsText(fi)}}/></label>
+    </div>
+  </div></div>);
+};
+
+// ── REMAINING TABS (Dashboard, Proyecto, Presupuesto, Pagos, Cronograma) ─
+const Dashboard=({state})=>{
+  const {proyecto,partidas,pagos,gastos,actividades,ots}=state;
+  const totPres=useMemo(()=>partidas.filter(p=>!p.esCapitulo).reduce((s,p)=>s+(+p.cant*+p.vUnit||0),0),[partidas]);
+  const totPagos=useMemo(()=>pagos.reduce((s,p)=>s+(+p.valor||0),0),[pagos]);
+  const totGastos=useMemo(()=>gastos.reduce((s,g)=>s+(+g.valorPag||0),0),[gastos]);
+  const totOTs=useMemo(()=>(ots||[]).reduce((s,o)=>s+(+o.neto||0),0),[ots]);
+  const vc=+proyecto.valorContrato||0;
+  const actsFin=actividades.filter(a=>!a.esCapitulo&&+a.pct>=1).length;
+  const actsTotal=actividades.filter(a=>!a.esCapitulo).length;
+  const atrasadas=actividades.filter(a=>!a.esCapitulo&&a.fFinPlan&&new Date(a.fFinPlan)<new Date()&&+a.pct<1);
+  const diasT=days(proyecto.fechaInicio,proyecto.fechaFin);
+  const diasTrans=proyecto.fechaInicio?days(proyecto.fechaInicio,tod()):null;
+  const gcats=gastos.reduce((a,g)=>{const c=g.categoria||'Otros';a[c]=(a[c]||0)+(+g.valorPag||0);return a},{});
+  return(<div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div className="card" style={{padding:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <div><div style={{fontSize:10,color:'#94a3b8',textTransform:'uppercase',letterSpacing:1}}>Proyecto activo</div>
+          <div style={{fontSize:20,fontWeight:700,marginTop:2}}>{proyecto.nombre||'Sin nombre'}</div>
+          <div style={{fontSize:12,color:'#94a3b8',marginTop:2}}>{proyecto.tipo&&proyecto.tipo+' · '}{proyecto.direccion&&proyecto.direccion+', '}{proyecto.ciudad}</div>
+        </div>
+        <div style={{textAlign:'right'}}><div style={{fontSize:10,color:'#94a3b8'}}>Cliente</div><div style={{fontSize:13,fontWeight:600}}>{proyecto.cliente||'—'}</div><div style={{fontSize:11,color:'#94a3b8'}}>{proyecto.telefono}</div></div>
+      </div>
+      {proyecto.fechaInicio&&<div style={{marginTop:12}}>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#94a3b8',marginBottom:3}}>
+          <span>⏱ {proyecto.fechaInicio} → {proyecto.fechaFin||'?'}</span>
+          <span>{diasTrans!==null&&`${diasTrans} días · `}{diasT&&diasTrans!==null&&`${Math.max(0,diasT-diasTrans)} restantes`}</span>
+        </div>
+        <div className="pbar"><div className="pfill" style={{width:diasT?`${Math.min(100,diasTrans/diasT*100)}%`:'0%'}}/></div>
+      </div>}
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+      <Kpi label="Contrato Total" val={cop(vc)} icon="📄"/>
+      <Kpi label="Pagos Recibidos" val={cop(totPagos)} sub={pct(vc?totPagos/vc:0)+' cobrado'} color="#2ecc71" icon="💰"/>
+      <Kpi label="Saldo por Cobrar" val={cop(vc-totPagos)} color={vc-totPagos>0?'#f39c12':'#2ecc71'} icon="🔔"/>
+      <Kpi label="Gastos Ejecutados" val={cop(totGastos)} sub={totPres?pct(totGastos/totPres)+' del presupuesto':''} color="#e74c3c" icon="💸"/>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+      <Kpi label="Presupuesto" val={cop(totPres)} icon="📊"/>
+      <Kpi label="Saldo Presupuesto" val={cop(totPres-totGastos)} color={totPres-totGastos>=0?'#2ecc71':'#e74c3c'} icon="📉"/>
+      <Kpi label="Avance Físico" val={`${actsTotal?(actsFin/actsTotal*100).toFixed(0):0}%`} sub={`${actsFin}/${actsTotal} actividades`} color="#3498db" icon="🏗"/>
+      <Kpi label="OTs Pendientes" val={cop((ots||[]).filter(o=>o.estado!=='Pagado').reduce((s,o)=>s+(+o.neto||0),0))} color="#f39c12" icon="👷"/>
+    </div>
+    {Object.keys(gcats).length>0&&<div className="card" style={{padding:14}}>
+      <div className="sec">Gastos por categoría</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
+        {Object.entries(gcats).sort((a,b)=>b[1]-a[1]).map(([cat,v])=>(
+          <div key={cat} style={{display:'flex',justifyContent:'space-between',padding:'6px 10px',background:'#f1f5f9',borderRadius:6,fontSize:13}}>
+            <span style={{color:'#94a3b8'}}>{cat}</span><span style={{fontWeight:600,color:'#e67e22'}}>{cop(v)}</span>
+          </div>
+        ))}
+      </div>
+    </div>}
+    {atrasadas.length>0&&<div className="card" style={{padding:14,borderColor:'#7f1d1d'}}>
+      <div className="sec" style={{color:'#e74c3c'}}>⚠️ Actividades atrasadas</div>
+      {atrasadas.map(a=><div key={a.id} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid #1e2d3d',fontSize:13}}><span>{a.num} — {a.desc}</span><span className="err">Vencía: {a.fFinPlan}</span></div>)}
+    </div>}
+  </div>);
+};
+
+const ProyectoTab=({data,onChange})=>{const s=(k,v)=>onChange({...data,[k]:v});return(
+  <div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div className="card" style={{padding:16}}><div className="sec">Proyecto</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label="Nombre" val={data.nombre} set={v=>s('nombre',v)} wide/><Inp label="Tipo" val={data.tipo} set={v=>s('tipo',v)} ph="Remodelación baño"/><Inp label="Dirección de obra" val={data.direccion} set={v=>s('direccion',v)}/><Inp label="Ciudad/Barrio" val={data.ciudad} set={v=>s('ciudad',v)}/><Inp label="Área (m²)" type="number" val={data.area} set={v=>s('area',v)} suf="m²"/></div></div>
+    <div className="card" style={{padding:16}}><div className="sec">Cliente</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label="Nombre" val={data.cliente} set={v=>s('cliente',v)}/><Inp label="Teléfono" val={data.telefono} set={v=>s('telefono',v)}/><Inp label="Email" type="email" val={data.email} set={v=>s('email',v)}/><Inp label="NIT/Cédula" val={data.nit} set={v=>s('nit',v)}/><Inp label="Dirección" val={data.dirCliente} set={v=>s('dirCliente',v)} wide/></div></div>
+    <div className="card" style={{padding:16}}><div className="sec">Contrato y Fechas</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label="Fecha Inicio" type="date" val={data.fechaInicio} set={v=>s('fechaInicio',v)}/><Inp label="Fecha Entrega" type="date" val={data.fechaFin} set={v=>s('fechaFin',v)}/><Inp label="Valor Total ($)" type="number" val={data.valorContrato} set={v=>s('valorContrato',v)} pre="$"/><Inp label="% Anticipo" type="number" val={data.anticipoPct?+(data.anticipoPct*100).toFixed(0):''} set={v=>s('anticipoPct',+v/100)} suf="%"/></div>{data.valorContrato&&data.anticipoPct?<div style={{marginTop:8,padding:'7px 12px',background:'#f1f5f9',borderRadius:6,fontSize:13,color:'#94a3b8'}}>💡 Anticipo: <strong style={{color:'#e67e22'}}>{cop(+data.valorContrato*+data.anticipoPct)}</strong></div>:null}</div>
+    <div className="card" style={{padding:16}}><Inp label="Notas y condiciones comerciales" val={data.notas||''} set={v=>s('notas',v)} rows={4} ph="Condiciones, forma de pago, garantía..."/></div>
+  </div>);
+};
+
+const PresupuestoTab=({partidas,onChange})=>{
+  const [editId,setEditId]=useState(null);const [showAdd,setShowAdd]=useState(false);
+  const [nr,setNr]=useState({item:'',desc:'',unidad:'',cant:'',vUnit:'',esCapitulo:false});
+  const total=useMemo(()=>partidas.filter(p=>!p.esCapitulo).reduce((s,p)=>s+(+p.cant*+p.vUnit||0),0),[partidas]);
+  const upd=(id,f,v)=>onChange(partidas.map(p=>p.id===id?{...p,[f]:v}:p));
+  const del=id=>onChange(partidas.filter(p=>p.id!==id));
+  const add=()=>{if(!nr.desc)return;onChange([...partidas,{...nr,id:uid()}]);setNr({item:'',desc:'',unidad:'',cant:'',vUnit:'',esCapitulo:false});setShowAdd(false)};
+  return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><Kpi label="Total Presupuesto" val={cop(total)} icon="📊"/><button className="btn" onClick={()=>setShowAdd(!showAdd)}>+ Agregar Partida</button></div>
+    {showAdd&&<div className="card" style={{padding:14,borderColor:'#e67e22'}}><div className="sec">Nueva Partida</div><div style={{display:'grid',gridTemplateColumns:'80px 1fr 80px 90px 130px 80px auto',gap:8,alignItems:'end'}}>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Ítem</label><input value={nr.item} onChange={e=>setNr({...nr,item:e.target.value})} className="inp" placeholder="1.1"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Descripción</label><input value={nr.desc} onChange={e=>setNr({...nr,desc:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Unidad</label><input value={nr.unidad} onChange={e=>setNr({...nr,unidad:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Cantidad</label><input type="number" value={nr.cant} onChange={e=>setNr({...nr,cant:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>V. Unitario</label><input type="number" value={nr.vUnit} onChange={e=>setNr({...nr,vUnit:e.target.value})} className="inp"/></div>
+      <div style={{paddingTop:14}}><label style={{fontSize:10,color:'#94a3b8',display:'block'}}>Cap.</label><input type="checkbox" checked={nr.esCapitulo} onChange={e=>setNr({...nr,esCapitulo:e.target.checked})} style={{marginTop:6}}/></div>
+      <div style={{paddingTop:14}}><button className="btn" onClick={add}>+</button></div>
+    </div></div>}
+    <div className="card" style={{overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr><th style={{width:70}}>Ítem</th><th>Descripción</th><th style={{width:70,textAlign:'center'}}>Und</th><th style={{width:85,textAlign:'right'}}>Cant.</th><th style={{width:140,textAlign:'right'}}>V. Unit.</th><th style={{width:145,textAlign:'right'}}>V. Total</th><th style={{width:65,textAlign:'right'}}>%</th><th style={{width:50}}></th></tr></thead>
+        <tbody>{partidas.map((p,i)=>{const vt=+p.cant*+p.vUnit||0;const pp=total>0?vt/total:0;const isE=editId===p.id;return(
+          <tr key={p.id} style={{background:p.esCapitulo?'#1a3a5c':i%2===0?'#1a2332':'#1e2d3d'}}>
+            <td>{isE?<input value={p.item} onChange={e=>upd(p.id,'item',e.target.value)} className="inp" style={{width:60}}/>:<span style={{color:'#94a3b8',fontSize:12}}>{p.item}</span>}</td>
+            <td>{isE?<input value={p.desc} onChange={e=>upd(p.id,'desc',e.target.value)} className="inp"/>:<span style={{fontWeight:p.esCapitulo?700:400,color:p.esCapitulo?'#60a5fa':'#e2e8f0'}}>{p.desc}</span>}</td>
+            <td style={{textAlign:'center'}}>{!p.esCapitulo&&(isE?<input value={p.unidad} onChange={e=>upd(p.id,'unidad',e.target.value)} className="inp" style={{width:65,textAlign:'center'}}/>:<span style={{color:'#94a3b8',fontSize:12}}>{p.unidad}</span>)}</td>
+            <td style={{textAlign:'right'}}>{!p.esCapitulo&&(isE?<input type="number" value={p.cant} onChange={e=>upd(p.id,'cant',e.target.value)} className="inp" style={{width:80,textAlign:'right'}}/>:<span style={{color:'#94a3b8'}}>{p.cant!==''?num(p.cant):'—'}</span>)}</td>
+            <td style={{textAlign:'right'}}>{!p.esCapitulo&&(isE?<input type="number" value={p.vUnit} onChange={e=>upd(p.id,'vUnit',e.target.value)} className="inp" style={{width:130,textAlign:'right'}}/>:<span style={{color:'#94a3b8'}}>{p.vUnit!==''?cop(p.vUnit):'—'}</span>)}</td>
+            <td style={{textAlign:'right',fontWeight:!p.esCapitulo&&vt>0?600:400,color:vt>0?'#e67e22':'#475569'}}>{!p.esCapitulo?(vt>0?cop(vt):'—'):''}</td>
+            <td style={{textAlign:'right',color:'#94a3b8',fontSize:11}}>{!p.esCapitulo&&pp>0?pct(pp):''}</td>
+            <td style={{textAlign:'center'}}><button onClick={()=>setEditId(isE?null:p.id)} className="btn-del">{isE?'✅':'✏️'}</button><button onClick={()=>del(p.id)} className="btn-del">🗑</button></td>
+          </tr>);
+        })}</tbody>
+        <tfoot><tr style={{background:'#ffffff',borderTop:'2px solid #e67e22'}}><td colSpan={5} style={{textAlign:'right',fontWeight:700,padding:10}}>TOTAL PRESUPUESTO</td><td style={{textAlign:'right',fontWeight:700,color:'#e67e22',fontSize:14}}>{cop(total)}</td><td style={{textAlign:'right',color:'#94a3b8',fontSize:12}}>100%</td><td></td></tr></tfoot>
+      </table>
+    </div>
+  </div>);
+};
+
+const TIPOS_PAGO=['Anticipo','Pago Parcial','Pago Final','Pago Adicional','Devolución'];
+const PagosTab=({pagos,onChange,proyecto})=>{
+  const [show,setShow]=useState(false);const [f,setF]=useState({fecha:tod(),concepto:'',tipo:'Anticipo',ref:'',valor:'',valorEsp:''});
+  const sf=(k,v)=>setF(x=>({...x,[k]:v}));
+  const total=useMemo(()=>pagos.reduce((s,p)=>s+(+p.valor||0),0),[pagos]);
+  const vc=+proyecto.valorContrato||0;
+  const add=()=>{if(!f.valor)return;onChange([...pagos,{...f,id:uid()}]);setF({fecha:tod(),concepto:'',tipo:'Anticipo',ref:'',valor:'',valorEsp:''});setShow(false)};
+  const del=id=>onChange(pagos.filter(p=>p.id!==id));
+  const est=p=>{const v=+p.valor,ve=+p.valorEsp;if(!ve)return<span className="none">—</span>;if(v>=ve)return<span className="ok">✅</span>;if(v>0)return<span className="warn">⚠️</span>;return<span className="err">🔴</span>};
+  return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}><Kpi label="Total Recibido" val={cop(total)} color="#2ecc71" icon="💰"/><Kpi label="Saldo" val={cop(vc-total)} color={vc-total>0?'#f39c12':'#2ecc71'} icon="🔔"/><Kpi label="% Cobrado" val={pct(vc?total/vc:0)} icon="📊"/><Kpi label="# Pagos" val={pagos.length} icon="🧾"/></div>
+    <div style={{display:'flex',justifyContent:'flex-end'}}><button className="btn" onClick={()=>setShow(!show)}>+ Registrar Pago</button></div>
+    {show&&<div className="card" style={{padding:14,borderColor:'#2ecc71'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+        <div className="sec" style={{margin:0}}>Nuevo Pago</div>
+        <AnalyzeBtn mode="pago" onResult={r=>{
+          if(!r)return;
+          let fd=tod();
+          if(r.fecha){try{const d=new Date(r.fecha);if(!isNaN(d.getTime()))fd=d.toISOString().slice(0,10);}catch{}}
+          setF(x=>({...x,
+            fecha:fd,
+            concepto:r.concepto||x.concepto,
+            tipo:r.tipo||x.tipo,
+            ref:r.referencia||x.ref,
+            valor:r.valor!=null?String(Math.round(r.valor)):x.valor,
+          }));
+        }}/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}><Inp label="Fecha" type="date" val={f.fecha} set={v=>sf('fecha',v)}/><Inp label="Concepto" val={f.concepto} set={v=>sf('concepto',v)}/><Sel label="Tipo" val={f.tipo} set={v=>sf('tipo',v)} opts={TIPOS_PAGO}/><Inp label="Referencia" val={f.ref} set={v=>sf('ref',v)}/><Inp label="Valor Recibido" type="number" val={f.valor} set={v=>sf('valor',v)} pre="$"/><Inp label="Valor Esperado" type="number" val={f.valorEsp} set={v=>sf('valorEsp',v)} pre="$"/></div><div style={{marginTop:10,display:'flex',gap:8}}><button className="btn" onClick={add}>Guardar</button><button className="btn-ghost" onClick={()=>setShow(false)}>Cancelar</button></div></div>}
+    <div className="card" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
+      <thead><tr><th>#</th><th>Fecha</th><th>Concepto</th><th>Tipo</th><th>Ref.</th><th style={{textAlign:'right'}}>Recibido</th><th style={{textAlign:'right'}}>Esperado</th><th style={{textAlign:'right'}}>% Contrato</th><th style={{textAlign:'right'}}>Acumulado</th><th></th><th></th></tr></thead>
+      <tbody>{pagos.length===0?<tr><td colSpan={11} style={{textAlign:'center',color:'#94a3b8',padding:20}}>Sin pagos</td></tr>:pagos.map((p,i)=>{const acum=pagos.slice(0,i+1).reduce((s,x)=>s+(+x.valor||0),0);return(
+        <tr key={p.id} style={{background:i%2===0?'#1a2332':'#1e2d3d'}}><td style={{color:'#94a3b8'}}>{i+1}</td><td style={{color:'#94a3b8',fontSize:12}}>{p.fecha}</td><td style={{fontWeight:500}}>{p.concepto}</td><td><span className="none">{p.tipo}</span></td><td style={{color:'#94a3b8',fontSize:12}}>{p.ref}</td><td style={{textAlign:'right',fontWeight:600,color:'#2ecc71'}}>{cop(p.valor)}</td><td style={{textAlign:'right',color:'#94a3b8'}}>{p.valorEsp?cop(p.valorEsp):'—'}</td><td style={{textAlign:'right',color:'#94a3b8'}}>{vc?pct(+p.valor/vc):'—'}</td><td style={{textAlign:'right',color:'#e67e22'}}>{cop(acum)}</td><td>{est(p)}</td><td><button onClick={()=>del(p.id)} className="btn-del">🗑</button></td>
+      </tr>);})}
+      </tbody>{pagos.length>0&&<tfoot><tr style={{borderTop:'2px solid #2ecc71',background:'#ffffff'}}><td colSpan={5} style={{textAlign:'right',fontWeight:700,padding:10}}>TOTAL RECIBIDO</td><td style={{textAlign:'right',fontWeight:700,color:'#2ecc71',fontSize:14}}>{cop(total)}</td><td colSpan={5}></td></tr></tfoot>}
+    </table></div>
+  </div>);
+};
+
+const CronogramaTab=({actividades,onChange})=>{
+  const [showAdd,setShowAdd]=useState(false);const [na,setNa]=useState({num:'',desc:'',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''});
+  const upd=(id,f,v)=>onChange(actividades.map(a=>a.id===id?{...a,[f]:v}:a));
+  const del=id=>onChange(actividades.filter(a=>a.id!==id));
+  const add=()=>{if(!na.desc)return;onChange([...actividades,{...na,id:uid()}]);setNa({num:'',desc:'',esCapitulo:false,pct:'',fIniPlan:'',fFinPlan:'',fIniReal:'',fFinReal:''});setShowAdd(false)};
+  const nc=actividades.filter(a=>!a.esCapitulo);
+  const est=a=>{const p=+a.pct;if(p>=1)return<span className="ok">✅</span>;if(a.fIniReal&&!a.fFinReal){if(a.fFinPlan&&new Date(a.fFinPlan)<new Date())return<span className="err">🔴 Atrasado</span>;return<span className="warn">🟡 En proceso</span>;}if(p>0)return<span className="warn">🟡</span>;return<span className="none">⬜</span>};
+  return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}><Kpi label="Actividades" val={nc.length} icon="📋"/><Kpi label="Finalizadas" val={nc.filter(a=>+a.pct>=1).length} color="#2ecc71" icon="✅"/><Kpi label="En Proceso" val={nc.filter(a=>+a.pct>0&&+a.pct<1).length} color="#f39c12" icon="🟡"/><Kpi label="Atrasadas" val={nc.filter(a=>a.fFinPlan&&new Date(a.fFinPlan)<new Date()&&+a.pct<1).length} color="#e74c3c" icon="🔴"/></div>
+    <div style={{display:'flex',justifyContent:'flex-end'}}><button className="btn" onClick={()=>setShowAdd(!showAdd)}>+ Agregar</button></div>
+    {showAdd&&<div className="card" style={{padding:14}}><div className="sec">Nueva Actividad</div><div style={{display:'grid',gridTemplateColumns:'80px 1fr 120px 120px 90px 80px auto',gap:8,alignItems:'end'}}>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Núm.</label><input value={na.num} onChange={e=>setNa({...na,num:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Descripción</label><input value={na.desc} onChange={e=>setNa({...na,desc:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Inicio Plan</label><input type="date" value={na.fIniPlan} onChange={e=>setNa({...na,fIniPlan:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>Fin Plan</label><input type="date" value={na.fFinPlan} onChange={e=>setNa({...na,fFinPlan:e.target.value})} className="inp"/></div>
+      <div><label style={{fontSize:10,color:'#94a3b8'}}>% Avance</label><input type="number" min="0" max="100" value={na.pct!==''?+(na.pct*100).toFixed(0):''} onChange={e=>setNa({...na,pct:+e.target.value/100})} className="inp"/></div>
+      <div style={{paddingTop:14}}><label style={{fontSize:10,color:'#94a3b8',display:'block'}}>Cap.</label><input type="checkbox" checked={na.esCapitulo} onChange={e=>setNa({...na,esCapitulo:e.target.checked})} style={{marginTop:6}}/></div>
+      <div style={{paddingTop:14}}><button className="btn" onClick={add}>+</button></div>
+    </div></div>}
+    <div className="card" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
+      <thead><tr><th style={{width:60}}>Núm.</th><th>Actividad</th><th style={{width:112,textAlign:'center'}}>Ini.Plan</th><th style={{width:112,textAlign:'center'}}>Fin Plan</th><th style={{width:112,textAlign:'center'}}>Ini.Real</th><th style={{width:112,textAlign:'center'}}>Fin Real</th><th style={{width:130}}>% Avance</th><th style={{width:65,textAlign:'center'}}>Días</th><th style={{width:100}}>Estado</th><th style={{width:40}}></th></tr></thead>
+      <tbody>{actividades.map((a,i)=>{const dp=days(a.fIniPlan,a.fFinPlan);const pv=+a.pct||0;return(
+        <tr key={a.id} style={{background:a.esCapitulo?'#1a3a5c':i%2===0?'#1a2332':'#1e2d3d'}}>
+          <td style={{color:'#94a3b8',fontSize:12}}>{a.num}</td>
+          <td style={{fontWeight:a.esCapitulo?700:400,color:a.esCapitulo?'#60a5fa':'#e2e8f0'}}>{a.desc}</td>
+          {['fIniPlan','fFinPlan','fIniReal','fFinReal'].map(field=><td key={field} style={{textAlign:'center'}}>{!a.esCapitulo&&<input type="date" value={a[field]||''} onChange={e=>upd(a.id,field,e.target.value)} style={{background:'transparent',border:'1px solid #e2e8f0',color:'#94a3b8',borderRadius:4,padding:'3px 4px',fontSize:11,width:108}}/>}</td>)}
+          <td>{!a.esCapitulo&&<div><div style={{fontSize:11,color:'#94a3b8',marginBottom:2}}>{(pv*100).toFixed(0)}%</div><div className="pbar"><div className="pfill" style={{width:`${pv*100}%`}}/></div><input type="range" min="0" max="100" value={pv*100} onChange={e=>upd(a.id,'pct',+e.target.value/100)} style={{width:'100%',marginTop:2,accentColor:'#e67e22',cursor:'pointer'}}/></div>}</td>
+          <td style={{textAlign:'center',color:'#94a3b8',fontSize:12}}>{!a.esCapitulo&&dp!==null?`${dp}d`:''}</td>
+          <td>{!a.esCapitulo&&est(a)}</td>
+          <td><button onClick={()=>del(a.id)} className="btn-del">🗑</button></td>
+        </tr>);
+      })}</tbody>
+    </table></div>
+  </div>);
+};
+
+// ── APP ───────────────────────────────────────────────────────
+// ── JSON EXPORT / IMPORT ─────────────────────────────────────
+const downloadJSON = (projectName, data) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const date = new Date().toISOString().slice(0,10);
+  a.href = url; a.download = `SEKA_${(projectName||'proyecto').replace(/\s+/g,'_')}_${date}.json`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+};
+
+const importJSON = (onImport) => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json';
+  inp.onchange = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      onImport(data, file.name.replace('.json',''));
+    } catch(err) {
+      alert('Archivo JSON inválido: ' + err.message);
+    }
+  };
+  inp.click();
+};
+
+const TABS=[{id:'dashboard',label:'📊 Dashboard'},{id:'proyecto',label:'📋 Proyecto'},{id:'presupuesto',label:'💵 Presupuesto'},{id:'pagos',label:'💰 Pagos'},{id:'gastos',label:'💸 Gastos'},{id:'cronograma',label:'📅 Cronograma'},{id:'ot',label:'👷 OT Trabajadores'},{id:'contratos',label:'📄 Contratos'},{id:'informes',label:'📝 Informes'},{id:'actas',label:'📝 Actas M&M'},{id:'ia',label:'🤖 IA Tools'}];
+
+const App=()=>{
+  const [tab,setTab]=useState('dashboard');const [projectId,setProjectId]=useState(null);const [projectName,setProjectName]=useState('');const [state,setState]=useState(null);const [showPM,setShowPM]=useState(true);const [showBk,setShowBk]=useState(false);const [showSync,setShowSync]=useState(false);const [saveMsg,setSaveMsg]=useState('');const autoRef=useRef();
+
+  useEffect(()=>{if(!state||!projectId)return;saveProject(projectId,projectName,state);setSaveMsg('Guardado ✓');if(autoRef.current)clearTimeout(autoRef.current);autoRef.current=setTimeout(()=>setSaveMsg(''),2000)},[state]);
+
+  const open=(id,name,data)=>{
+    // Ensure new fields exist for old projects
+    const d={...EMPTY_PROJECT,...data,proyecto:{...EMPTY_PROJECT.proyecto,...(data.proyecto||{})},ots:data.ots||[],contratos:data.contratos||[],informes:data.informes||[],actas:data.actas||[]};
+    setProjectId(id);setProjectName(name);setState(d);setShowPM(false);
+  };
+  const set=(field,val)=>setState(s=>({...s,[field]:val}));
+  const doManualBk=()=>{saveBackup(projectId,`Manual — ${tsLabel(Date.now())}`,state);setSaveMsg('💾 Backup guardado ✓');setTimeout(()=>setSaveMsg(''),2500)};
+  const onRestoreAll=(merged)=>{const first=Object.values(merged)[0];if(first){open(first.id,first.name,first.data);}setShowPM(true);};
+
+  return(<div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#f1f5f9'}}>
+    {showPM&&<ProjectManager onSelect={open} onClose={()=>setShowPM(false)}/>}
+    {showBk&&state&&<BackupPanel projectId={projectId} projectName={projectName} currentData={state} onRestore={data=>{const d={...EMPTY_PROJECT,...data,ots:data.ots||[],contratos:data.contratos||[],informes:data.informes||[],actas:data.actas||[]};setState(d);saveProject(projectId,projectName,d)}} onClose={()=>setShowBk(false)}/>}
+    {showSync&&<CloudSyncPanel onClose={()=>setShowSync(false)} onRestoreAll={onRestoreAll}/>}
+    <div style={{background:'#1e293b',borderBottom:'1px solid #334155',padding:'0 18px',display:'flex',alignItems:'center',justifyContent:'space-between',height:50,flexShrink:0}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div onClick={()=>setShowPM(true)} style={{cursor:'pointer',display:'flex',alignItems:'center'}}><SekaLogo w={110} inverted={true}/></div>
+        {projectName&&<div style={{marginLeft:8,padding:'2px 10px',background:'#f1f5f9',borderRadius:14,fontSize:11,color:'#94a3b8',border:'1px solid #e2e8f0',cursor:'pointer'}} onClick={()=>setShowPM(true)}>📁 {projectName} ▾</div>}
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:5}}>
+        {saveMsg&&<span style={{fontSize:11,color:'#4ade80'}}>{saveMsg}</span>}
+        <span style={{fontSize:11,padding:'3px 8px',background:'rgba(22,163,74,.2)',border:'1px solid #16a34a',borderRadius:5,color:'#4ade80',fontWeight:600}}>🔍 OCR Gratis</span>
+        <button className="btn-ghost" onClick={()=>setShowSync(true)} style={{fontSize:11,color:'#38bdf8',borderColor:'#0ea5e9',fontWeight:700,background:'rgba(14,165,233,.1)'}}>☁ Sync</button>
+        {state&&<><button className="btn-ghost" onClick={()=>downloadJSON(projectName,state)} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>⬇ JSON</button>
+        <button className="btn-ghost" onClick={doManualBk} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>💾 Backup</button>
+        <button className="btn-ghost" onClick={()=>setShowBk(true)} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>🗂 Historial</button>
+        <button className="btn-ghost" onClick={()=>importJSON((data,name)=>{const d={...EMPTY_PROJECT,...data,proyecto:{...EMPTY_PROJECT.proyecto,...(data.proyecto||{})},ots:data.ots||[],contratos:data.contratos||[],informes:data.informes||[],actas:data.actas||[]};const id='p_'+Date.now();const pname=data.proyecto?.nombre||name||'Importado';saveProject(id,pname,d);open(id,pname,d);})} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>⬆ Importar</button>
+        <button className="btn-ghost" onClick={()=>setShowPM(true)} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>📁 Proyectos</button>
+        <button className="btn-ghost" onClick={()=>window.print()} style={{fontSize:11,color:'#e2e8f0',borderColor:'#334155'}}>🖨 Imprimir</button></>}
+      </div>
+    </div>
+    <div className="noprint" style={{background:'#1e293b',borderBottom:'1px solid #334155',padding:'0 18px',display:'flex',gap:2,overflowX:'auto',flexShrink:0}}>
+      {TABS.map(t=><button key={t.id} onClick={()=>{if(!state){setShowPM(true);return;}setTab(t.id)}} className={tab===t.id&&state?'tab-on':'tab-off'} style={t.id==='ia'?{background:tab==='ia'&&state?'#7c3aed':'transparent',color:tab==='ia'&&state?'#fff':'#c4b5fd',borderLeft:'1px solid #334155',marginLeft:4}:{}}>{t.label}</button>)}
+    </div>
+    <div style={{flex:1,padding:18,overflowY:'auto',background:'#f1f5f9'}}>
+      {!state?<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'60vh',gap:14,background:'#f1f5f9'}}>
+        <SekaLogo w={180} inverted={true}/>
+        <div style={{fontSize:13,color:'#94a3b8'}}>Selecciona o crea un proyecto</div>
+        <button className="btn" onClick={()=>setShowPM(true)}>Abrir Proyectos</button>
+      </div>:(<>
+        {tab==='dashboard'&&<Dashboard state={state}/>}
+        {tab==='proyecto'&&<ProyectoTab data={state.proyecto} onChange={d=>set('proyecto',d)}/>}
+        {tab==='presupuesto'&&<PresupuestoTab partidas={state.partidas} onChange={d=>set('partidas',d)}/>}
+        {tab==='pagos'&&<PagosTab pagos={state.pagos} onChange={d=>set('pagos',d)} proyecto={state.proyecto}/>}
+        {tab==='gastos'&&<GastosTab gastos={state.gastos} onChange={d=>set('gastos',d)} partidas={state.partidas} projectId={projectId}/>}
+        {tab==='cronograma'&&<CronogramaTab actividades={state.actividades} onChange={d=>set('actividades',d)}/>}
+        {tab==='ot'&&<OTTab ots={state.ots||[]} onChange={d=>set('ots',d)} projectId={projectId}/>}
+        {tab==='contratos'&&<ContratosTab contratos={state.contratos||[]} onChange={d=>set('contratos',d)} projectId={projectId}/>}
+        {tab==='informes'&&<InformesTab informes={state.informes||[]} onChange={d=>set('informes',d)} projectId={projectId} proyecto={state.proyecto}/>}
+        {tab==='actas'&&<ActasTab actas={state.actas||[]} onChange={d=>set('actas',d)} proyecto={state.proyecto}/>}
+        {tab==='ia'&&<IAToolsTab state={state} onChange={setState}/>}
+      </>)}
+    </div>
+    <div style={{background:'#1e293b',borderTop:'1px solid #334155',padding:'5px 18px',fontSize:10,color:'#64748b',textAlign:'center'}}>
+      SEKA Studio · 11 módulos · IA integrada · Guardado automático · ☁ Sync · {MAX_BACKS} backups
+    </div>
+  </div>);
+};
+// ═══════════════════════════════════════════════════════
+// IA TOOLS TAB — 3 módulos integrados con datos reales
+// ═══════════════════════════════════════════════════════
+const APU_SYS=`Eres el auditor técnico de presupuestos de SEKA STUDIO en Bogotá, Colombia.
+Auditas contra la BASE DE DATOS APU OFICIAL Ejército Nacional — Actualización Enero 2026.
+
+MANO DE OBRA 2026 (incluye prestaciones completas):
+- Maestro: $262.479/día | Oficial: $197.128/día | Ayudante: $94.434/día
+- Cuadrilla (1M+1O+1A): $554.041/día | SMMLV: $1.750.905
+
+PRECIOS BOGOTÁ 2026:
+Demoliciones: muros $18k–$50k/m² | enchape pisos $18k–$30k/m² | enchape muros $15k–$25k/m²
+Desmontes: sanitarios $30k–$60k/und | ducha $30k–$60k/und
+Mampostería: drywall $100k–$160k/m² | superboard $120k–$160k/m² | pañete $22k–$40k/m²
+Cielo raso: drywall junta perdida $90k–$140k/m²
+Pisos: alistado $25k–$45k/m² | cerámica $70k–$140k/m² | porcelanato $90k–$180k/m² | SPC $70k–$120k/m²
+Enchapes: cerámica muro $80k–$140k/m² | porcelanato $100k–$180k/m² | brick $180k–$320k/m²
+Pintura: vinilo tipo 1 (3 manos) $15k–$30k/m²
+Eléctrico: salida lámpara $55k–$100k/und | toma GFCI $100k–$150k/und | bala LED $50k–$100k/und
+Sanitarios: sanitario $400k–$800k/und | mueble+lavamanos+grifería $600k–$1.5M/und | ducha $250k–$700k/und
+Vidrios: división ducha $600k–$1.2M/ml | espejo $200k–$600k/und
+Carpintería: puerta entamborada $550k–$900k/und | plegable $800k–$2.5M/und | armario $1.5M–$4M/und | cocina $5M–$15M/und | mesón granito $700k–$1.5M/ml
+Hidráulico: punto agua fría $55k–$80k/und | desagüe $60k–$90k/und
+
+RANGOS $/m² REMODELACIÓN: Básica $600k–$900k | Media $900k–$1.4M | Premium $1.4M–$2.2M | Alta gama $2.2M–$3.5M
+
+CRITERIOS: OK=±25% rango | BAJO=<65% mínimo (riesgo alcance) | ALTO=>135% máximo | CRÍTICO=<50% mínimo
+Siempre: desviación en % y $ COP absolutos + contra-propuesta ajustada. Formato Markdown. Español colombiano.`;
+
+const PROP_SYS=`Eres el asistente de propuestas de SEKA STUDIO, estudio de arquitectura y diseño en Bogotá.
+Funcionario: Arq. Erick Hincapié | sekarquitectos@gmail.com | 3128340186
+
+TARIFAS SEKA 2026:
+- Diseño arquitectónico: $150.000–$220.000/m²
+- Dirección de obra: 5%–8% del valor obra
+- Diseño de interiores: $120.000–$180.000/m²
+- Consultoría: $180.000–$250.000/hora
+- Renders 3D: $350.000–$800.000/vista
+- AIU: A=5% + I=4% + U=7% = 16% sobre costos directos
+
+ESQUEMA DE PAGO SEKA: Anticipo 50%–60% | Avance 50% obra: 20%–30% | Entrega: 20%
+RANGOS $/m²: Básica $600k–$900k | Media $900k–$1.4M | Premium $1.4M–$2.2M
+
+Genera propuestas en Markdown, listas para enviar. Tono profesional arquitectónico. COP siempre.`;
+
+const COM_SYS=`Eres el redactor de comunicaciones de SEKA STUDIO en Bogotá, Colombia.
+Redactas emails, WhatsApp y cartas profesionales para el estudio de arquitectura.
+Funcionario: Arq. Erick Hincapié | sekarquitectos@gmail.com | 3128340186
+Tono: profesional pero cercano, arquitectónico, sin floreos. Máximo 180 palabras en mensajes cortos.
+Cierra siempre con acción concreta. Español colombiano neutro.`;
+
+const callClaude=async(sys,usr,msgs,setMsgs)=>{
+  setMsgs([...msgs,{r:'user',t:usr},{r:'assistant',t:'...'}]);
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,
+        system:sys,messages:[{role:'user',content:usr}]})
+    });
+    const d=await res.json();
+    const txt=d.content?.[0]?.text||'Error en respuesta';
+    setMsgs(m=>[...m.slice(0,-1),{r:'assistant',t:txt}]);
+  }catch(e){setMsgs(m=>[...m.slice(0,-1),{r:'assistant',t:'Error: '+e.message}]);}
+};
+
+const MsgBubble=({msg})=>{
+  const isUser=msg.r==='user';
+  return <div style={{display:'flex',justifyContent:isUser?'flex-end':'flex-start',marginBottom:8}}>
+    <div style={{maxWidth:'85%',padding:'10px 14px',borderRadius:isUser?'16px 16px 4px 16px':'16px 16px 16px 4px',
+      background:isUser?'#7c3aed':'#fff',color:isUser?'#fff':'#1e293b',
+      fontSize:12,lineHeight:1.5,border:isUser?'none':'1px solid #e2e8f0',
+      whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+      {msg.t==='...'?<span style={{opacity:.5}}>Analizando...</span>:msg.t}
+    </div>
+  </div>;
+};
+
+const IAToolsTab=({state})=>{
+  const [mod,setMod]=useState('auditoria');
+  const [msgs1,setMsgs1]=useState([]);
+  const [msgs2,setMsgs2]=useState([]);
+  const [msgs3,setMsgs3]=useState([]);
+
+  // Extraer datos del proyecto activo
+  const p=state?.proyecto||{};
+  const partidas=state?.partidas||[];
+  const pagos=state?.pagos||[];
+  const gastos=state?.gastos||[];
+  const totalPresup=partidas.reduce((s,x)=>s+(parseFloat(x.valor)||0),0);
+  const totalPagos=pagos.reduce((s,x)=>s+(parseFloat(x.monto)||0),0);
+  const totalGastos=gastos.reduce((s,x)=>s+(parseFloat(x.monto)||0),0);
+  const utilidad=totalPagos-totalGastos;
+
+  const ctxProyecto=`PROYECTO ACTIVO EN SEKA PROYECTOS:
+- Nombre: ${p.nombre||'Sin nombre'}
+- Cliente: ${p.cliente||'—'}
+- Dirección: ${p.direccion||'—'}
+- Área: ${p.area||'—'} m²
+- Presupuesto total: $${totalPresup.toLocaleString('es-CO')} COP
+- Pagos recibidos: $${totalPagos.toLocaleString('es-CO')} COP
+- Gastos ejecutados: $${totalGastos.toLocaleString('es-CO')} COP
+- Utilidad actual: $${utilidad.toLocaleString('es-CO')} COP
+- Avance físico: ${p.avance||0}%
+- Estado: ${p.estado||'En ejecución'}
+- Partidas presupuesto (${partidas.length}):
+${partidas.slice(0,15).map(x=>`  · ${x.descripcion||x.item||'Ítem'}: $${(parseFloat(x.valor)||0).toLocaleString('es-CO')} ${x.unidad||''}`).join('\n')}
+${partidas.length>15?`  ... y ${partidas.length-15} más`:''}`;
+
+  // Módulo 1 — Auditoría APU
+  const [audInput,setAudInput]=useState('');
+  const sendAud=()=>{
+    if(!audInput.trim())return;
+    const prompt=`${ctxProyecto}\n\nSOLICITUD DE AUDITORÍA:\n${audInput}`;
+    callClaude(APU_SYS,prompt,msgs1,setMsgs1);
+    setAudInput('');
+  };
+
+  // Módulo 2 — Propuestas
+  const [propTipo,setPropTipo]=useState('remodelacion');
+  const [propInput,setPropInput]=useState('');
+  const sendProp=()=>{
+    const prompt=`${ctxProyecto}\n\nTIPO DE PROPUESTA: ${propTipo}\nINSTRUCCIONES ADICIONALES: ${propInput||'Genera propuesta completa basada en los datos del proyecto'}`;
+    callClaude(PROP_SYS,prompt,msgs2,setMsgs2);
+    setPropInput('');
+  };
+
+  // Módulo 3 — Comunicaciones
+  const [comTipo,setComTipo]=useState('seguimiento');
+  const [comInput,setComInput]=useState('');
+  const sendCom=()=>{
+    const prompt=`${ctxProyecto}\n\nTIPO DE COMUNICACIÓN: ${comTipo}\nINSTRUCCIONES: ${comInput||'Genera la comunicación basada en el estado actual del proyecto'}`;
+    callClaude(COM_SYS,prompt,msgs3,setMsgs3);
+    setComInput('');
+  };
+
+  const mods=[
+    {id:'auditoria',label:'🔍 Auditoría APU',color:'#0ea5e9'},
+    {id:'propuesta',label:'📄 Propuesta',color:'#7c3aed'},
+    {id:'comunicacion',label:'✉️ Comunicación',color:'#059669'},
+  ];
+
+  const inp={width:'100%',padding:'9px 12px',borderRadius:8,border:'1px solid #e2e8f0',
+    fontSize:12,fontFamily:'inherit',resize:'vertical',minHeight:70,
+    background:'#f8fafc',color:'#1e293b',outline:'none'};
+
+  const chip=(label,val,cur,set,color)=>(
+    <button key={val} onClick={()=>set(val)} style={{padding:'4px 12px',borderRadius:20,fontSize:11,
+      fontWeight:600,cursor:'pointer',border:'none',
+      background:cur===val?color:'#e2e8f0',color:cur===val?'#fff':'#64748b'}}>
+      {label}
+    </button>
+  );
+
+  // Context summary card
+  const CtxCard=()=>(
+    <div style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:11}}>
+      <div style={{fontWeight:700,color:'#334155',marginBottom:4}}>📁 Datos del proyecto activo inyectados automáticamente</div>
+      <div style={{color:'#64748b',display:'flex',gap:16,flexWrap:'wrap'}}>
+        <span>👤 {p.cliente||'Sin cliente'}</span>
+        <span>🏗 {p.nombre||'Sin nombre'}</span>
+        <span>📐 {p.area||'—'} m²</span>
+        <span>💰 ${totalPagos.toLocaleString('es-CO')} recibidos</span>
+        <span>📊 {p.avance||0}% avance</span>
+        <span>💵 ${totalPresup.toLocaleString('es-CO')} presupuesto</span>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{maxWidth:860,margin:'0 auto'}}>
+      {/* Header */}
+      <div style={{background:'linear-gradient(135deg,#7c3aed,#4f46e5)',borderRadius:12,padding:'16px 20px',marginBottom:16,color:'#fff'}}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>🤖 IA Tools · SEKA STUDIO</div>
+        <div style={{fontSize:11,opacity:.85}}>3 módulos IA · Datos del proyecto activo inyectados automáticamente · APU Bogotá 2026</div>
+      </div>
+
+      {/* Módulo tabs */}
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        {mods.map(m=>(
+          <button key={m.id} onClick={()=>setMod(m.id)} style={{
+            flex:1,padding:'10px 8px',borderRadius:10,fontSize:12,fontWeight:700,
+            cursor:'pointer',border:'none',transition:'all .15s',
+            background:mod===m.id?m.color:'#e2e8f0',
+            color:mod===m.id?'#fff':'#64748b',
+            boxShadow:mod===m.id?'0 2px 8px rgba(0,0,0,.15)':'none'}}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {/* MÓDULO 1 — AUDITORÍA APU */}
+      {mod==='auditoria'&&(
+        <div>
+          <CtxCard/>
+          <div style={{background:'#fff',borderRadius:10,padding:16,border:'1px solid #e2e8f0',marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:'#0ea5e9',marginBottom:8}}>¿Qué quieres auditar?</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+              {[['Todo el presupuesto','Audita todo el presupuesto del proyecto contra APU Bogotá 2026. Identifica ítems OK, BAJO, ALTO y CRÍTICO.'],
+                ['Carpintería','Audita los ítems de carpintería del presupuesto'],
+                ['Enchapes y pisos','Audita enchapes y pisos del presupuesto'],
+                ['Eléctrico','Audita las instalaciones eléctricas'],
+                ['Sanitarios','Audita los aparatos sanitarios y grifería']
+              ].map(([l,v])=>(
+                <button key={l} onClick={()=>setAudInput(v)} style={{
+                  padding:'5px 10px',borderRadius:16,fontSize:11,cursor:'pointer',
+                  background:'#eff6ff',border:'1px solid #bfdbfe',color:'#1d4ed8',fontWeight:600}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <textarea value={audInput} onChange={e=>setAudInput(e.target.value)}
+              placeholder="Ej: Audita los enchapes del baño. El contratista cotizó $95.000/m² para cerámica muro 20x20..."
+              style={inp} onKeyDown={e=>{if(e.key==='Enter'&&e.ctrlKey)sendAud();}}/>
+            <button onClick={sendAud} disabled={!audInput.trim()} style={{
+              marginTop:8,padding:'9px 20px',background:'#0ea5e9',color:'#fff',
+              border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+              opacity:audInput.trim()?1:.5}}>
+              Auditar con IA →
+            </button>
+          </div>
+          <div style={{background:'#fff',borderRadius:10,padding:16,border:'1px solid #e2e8f0',minHeight:200,maxHeight:500,overflowY:'auto'}}>
+            {msgs1.length===0?<div style={{color:'#94a3b8',fontSize:12,textAlign:'center',paddingTop:40}}>Los resultados aparecerán aquí</div>
+              :msgs1.map((m,i)=><MsgBubble key={i} msg={m}/>)}
+          </div>
+        </div>
+      )}
+
+      {/* MÓDULO 2 — PROPUESTAS */}
+      {mod==='propuesta'&&(
+        <div>
+          <CtxCard/>
+          <div style={{background:'#fff',borderRadius:10,padding:16,border:'1px solid #e2e8f0',marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:'#7c3aed',marginBottom:8}}>Tipo de propuesta</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+              {[['remodelacion','Remodelación'],['diseno_interiores','Diseño interiores'],
+                ['diseno_arq','Diseño arq.'],['direccion_obra','Dirección obra'],
+                ['consultoria','Consultoría'],['renders','Renders 3D']
+              ].map(([v,l])=>chip(l,v,propTipo,setPropTipo,'#7c3aed'))}
+            </div>
+            <textarea value={propInput} onChange={e=>setPropInput(e.target.value)}
+              placeholder="Instrucciones adicionales. Ej: Cliente exige materiales premium, incluir renders, plazo 45 días..."
+              style={inp}/>
+            <button onClick={sendProp} style={{
+              marginTop:8,padding:'9px 20px',background:'#7c3aed',color:'#fff',
+              border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+              Generar propuesta →
+            </button>
+          </div>
+          <div style={{background:'#fff',borderRadius:10,padding:16,border:'1px solid #e2e8f0',minHeight:200,maxHeight:500,overflowY:'auto'}}>
+            {msgs2.length===0?<div style={{color:'#94a3b8',fontSize:12,textAlign:'center',paddingTop:40}}>La propuesta generada aparecerá aquí</div>
+              :msgs2.map((m,i)=><MsgBubble key={i} msg={m}/>)}
+          </div>
+        </div>
+      )}
+
+      {/* MÓDULO 3 — COMUNICACIONES */}
+      {mod==='comunicacion'&&(
+        <div>
+          <CtxCard/>
+          <div style={{background:'#fff',borderRadius:10,padding:16,border:'1px solid #e2e8f0',marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:'#059669',marginBottom:8}}>Tipo de comunicación</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+              {[['seguimiento','Seguimiento obra'],['cobro','Cobro de saldo'],
+                ['entrega','Entrega de obra'],['inicio','Inicio de obra'],
+                ['retraso','Notif. retraso'],['adicional','Obra adicional']
+              ].map(([v,l])=>chip(l,v,comTipo,setComTipo,'#059669'))}
+            </div>
+            <textarea value={comInput} onChange={e=>setComInput(e.target.value)}
+              placeholder="Detalles específicos. Ej: El retraso es por lluvias esta semana, reagendamos para el lunes..."
+              style={inp}/>
+            <div style={{display:'flex',gap:8,marginTop:8}}>
+              <button onClick={()=>sendCom()} style={{
+                padding:'9px 16px',background:'#059669',color:'#fff',
+                border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                Email →
+              </button>
+              <button onClick={()=>{setComInput((comInput?comInput+' ':'')+' [formato WhatsApp, breve y directo]');sendCom();}} style={{
+                padding:'9px 16px',background:'#16a34a',color:'#fff',
+                border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                WhatsApp →
+              </button>
+            </div>
+          </div>
+          <div style={{background:'#fff',borderRadius:10,padding:16,border:'1px solid #e2e8f0',minHeight:200,maxHeight:500,overflowY:'auto'}}>
+            {msgs3.length===0?<div style={{color:'#94a3b8',fontSize:12,textAlign:'center',paddingTop:40}}>El mensaje redactado aparecerá aquí</div>
+              :msgs3.map((m,i)=><MsgBubble key={i} msg={m}/>)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>
